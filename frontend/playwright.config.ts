@@ -2,7 +2,10 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
-  timeout: 30_000,
+  // Windows cold compilation can consume >30s before the first interaction.
+  // Assertions retain their own short timeouts; this only prevents the test
+  // process from killing a valid page mid-flow during server startup.
+  timeout: 90_000,
   fullyParallel: true,
   reporter: [['list']],
   use: {
