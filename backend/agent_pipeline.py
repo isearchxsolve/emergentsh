@@ -47,6 +47,28 @@ product, audience, and any capabilities that are unique to that product.
 """.strip()
 
 
+# A visual quality contract, separate from product functionality, keeps terse
+# prompts from producing generic scaffolds. User-specified branding can replace
+# the hues, but never the depth, hierarchy, responsiveness, or state coverage.
+DEFAULT_VISUAL_QUALITY_BASELINE = """
+Every generated user interface must meet the Aurora Metal quality bar by default:
+- use a premium, dimensional 2026 visual language: deep metallic surfaces,
+  layered translucent glass, controlled emerald energy glows, and restrained
+  magenta/fuchsia highlights for focus and delight;
+- establish a deliberate type scale, generous spatial rhythm, strong hierarchy,
+  bespoke product-relevant components, and crisp iconography;
+- include subtle purposeful motion, tactile hover/pressed/focus states, polished
+  skeleton/loading, empty, validation, success, and runtime-error experiences;
+- remain responsive and touch-friendly from 390px mobile through wide desktop,
+  with accessible contrast, reduced-motion support, and keyboard-visible focus;
+- avoid flat template grids, newspaper-like layouts, placeholder copy, excessive
+  neon, decorative clutter, and repeated generic cards.
+
+If the user provides brand colors, adapt the palette while preserving this same
+level of metallic depth, luminous glass, interaction polish, and accessibility.
+""".strip()
+
+
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
@@ -374,6 +396,7 @@ class PlannerAgent(BaseAgent):
                 "Plan a full-stack application for the user's product idea below. "
                 "Apply the mandatory product baseline without asking the user to repeat it.\n\n"
                 f"PRODUCT BASELINE:\n{DEFAULT_PRODUCT_BASELINE}\n\n"
+                f"VISUAL QUALITY BASELINE:\n{DEFAULT_VISUAL_QUALITY_BASELINE}\n\n"
                 f"USER PRODUCT IDEA:\n{ctx.user_prompt}"
             ),
             temperature=0.3,
@@ -400,8 +423,8 @@ class DesignerAgent(BaseAgent):
         "You are a senior UI/UX designer and frontend architect. Given a project plan, "
         "produce a complete JSON design specification covering: color palette, typography, "
         "component hierarchy, page layouts, responsive breakpoints, and specific CSS classes to use (like backdrop-blur). "
-        "UI REQUIREMENT: You MUST implement a stunning, premium, modern user interface. "
-        "Use 2026 state-of-the-art aesthetics (glassmorphism, dynamic micro-animations). "
+        "The supplied Aurora Metal visual quality baseline is mandatory. Translate it "
+        "into product-specific tokens and components instead of a generic dashboard. "
         "Output ONLY a valid JSON object—no Markdown fences or prose—with this exact top-level shape: "
         '{"colors": {...}, "typography": {...}, "components": {...}, "layouts": {...}, "responsive": {...}}.'
     )
@@ -415,7 +438,9 @@ class DesignerAgent(BaseAgent):
             error_context = f"\n\nPREVIOUS ERROR TO FIX:\n{ctx.errors[-1]}"
 
         design = await self._call_nim(
-            user_message=f"Design the UI tokens for this project:\n\n{plan}{error_context}",
+            user_message=(f"Design the UI tokens for this project:\n\n{plan}\n\n"
+                          f"VISUAL QUALITY BASELINE:\n{DEFAULT_VISUAL_QUALITY_BASELINE}"
+                          f"{error_context}"),
             temperature=0.5,
             max_tokens=3000,
         )
@@ -449,7 +474,8 @@ class FrontendAgent(BaseAgent):
         "You are an expert React/TypeScript frontend engineer. Given a design spec, "
         "generate complete, production-ready React component code using Tailwind CSS. "
         "You MUST ensure the UI exactly matches the premium design tokens provided. "
-        "Apply glassmorphism effects, hover micro-animations, and pixel-perfect layouts. "
+        "Apply the supplied Aurora Metal quality baseline, all responsive breakpoints, "
+        "accessible interaction states, and polished loading/empty/error states. "
         "Output only valid, runnable code with no placeholders."
     )
 
@@ -464,7 +490,9 @@ class FrontendAgent(BaseAgent):
 
         code = await self._call_nim(
             user_message=(
-                f"Build the complete React frontend for:\n\nPLAN:\n{plan}\n\nDESIGN TOKENS:\n{design}{error_context}"
+                f"Build the complete React frontend for:\n\nPLAN:\n{plan}\n\n"
+                f"DESIGN TOKENS:\n{design}\n\nVISUAL QUALITY BASELINE:\n"
+                f"{DEFAULT_VISUAL_QUALITY_BASELINE}{error_context}"
             ),
             temperature=0.2,
             max_tokens=6000,

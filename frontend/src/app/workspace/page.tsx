@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Loader2, Copy, Download, Terminal, Layers, Zap, AlertCircle, MessageSquare, Monitor, Settings, LogOut, RefreshCw, ExternalLink, Check } from 'lucide-react';
+import { Send, Loader2, Copy, Download, Terminal, Layers, Zap, AlertCircle, MessageSquare, Monitor, Settings, LogOut, RefreshCw, ExternalLink, Check, Laptop, Tablet, Smartphone, Maximize2, X } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -24,8 +24,23 @@ type Phase = 'planning' | 'coding' | 'testing' | 'deploying' | 'complete' | 'err
 type AuthState = 'checking' | 'signed_out' | 'signed_in';
 // EM-6: the four states every job view must render.
 type JobState = 'empty' | 'loading' | 'error' | 'complete';
+type PreviewDevice = 'desktop' | 'tablet' | 'mobile';
 
 const TOKEN_KEY = 'emergent_token';
+
+function readableApiError(payload: unknown, fallback: string): string {
+  const detail = (payload as { detail?: unknown } | null)?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.map(item => {
+      if (typeof item === 'string') return item;
+      if (item && typeof item === 'object' && 'msg' in item) return String((item as { msg: unknown }).msg);
+      return '';
+    }).filter(Boolean);
+    if (messages.length) return messages.join(' · ');
+  }
+  return fallback;
+}
 
 const ROLE_TO_PHASE: Record<string, Phase> = {
   planner: 'planning',
@@ -75,6 +90,8 @@ export default function WorkspacePage() {
   const [showSettings, setShowSettings] = useState(false);
   const [copied, setCopied] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
+  const [previewDevice, setPreviewDevice] = useState<PreviewDevice>('desktop');
+  const [previewExpanded, setPreviewExpanded] = useState(false);
 
   const loadCredits = useCallback(async (t: string) => {
     try {
@@ -145,7 +162,7 @@ export default function WorkspacePage() {
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.detail || `Sign-in failed (${res.status})`);
+        throw new Error(readableApiError(detail, `Sign-in failed (${res.status})`));
       }
       const data = await res.json();
       localStorage.setItem(TOKEN_KEY, data.access_token);
@@ -176,7 +193,7 @@ export default function WorkspacePage() {
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.detail || `Registration failed (${res.status})`);
+        throw new Error(readableApiError(detail, `Registration failed (${res.status})`));
       }
       // Registration succeeded — now sign in with the same credentials.
       const body = new URLSearchParams({ username: authUsername, password: authPassword });
@@ -373,6 +390,12 @@ export default function WorkspacePage() {
 
   // EM-6: previously dead controls, now wired.
   const refreshPreview = () => setPreviewKey(k => k + 1);
+
+  const previewWidth: Record<PreviewDevice, string> = {
+    desktop: '100%',
+    tablet: '768px',
+    mobile: '390px',
+  };
 
   const openPreviewInTab = () => {
     if (previewUrl) window.open(previewUrl, '_blank', 'noopener');
@@ -691,10 +714,11 @@ export default function WorkspacePage() {
 
       {/* Right Panel - Live Preview with the four job states */}
       <aside className="w-[27rem] m-3 ml-0 rounded-[1.4rem] border border-white/[0.07] bg-[#090b12]/65 shadow-2xl shadow-black/20 backdrop-blur-2xl flex-col hidden xl:flex overflow-hidden">
-        <div className="p-5 border-b border-white/[0.06] flex items-center justify-between">
+        <div className="p-4 border-b border-white/[0.06] space-y-3">
+          <div className="flex items-center justify-between">
           <h3 className="font-semibold text-white flex items-center gap-2">
             <Monitor className="w-4 h-4 text-cyan-300" />
-            Live canvas
+            Preview studio
           </h3>
           <div className="flex items-center gap-2">
             <button
@@ -706,6 +730,14 @@ export default function WorkspacePage() {
               <RefreshCw className="w-4 h-4" />
             </button>
             <button
+              onClick={() => setPreviewExpanded(true)}
+              disabled={jobState !== 'complete'}
+              className="p-2 text-dark-400 hover:text-white hover:bg-dark-800 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Expand preview"
+            >
+              <Maximize2 className="w-4 h-4" />
+            </button>
+            <button
               onClick={openPreviewInTab}
               disabled={jobState !== 'complete'}
               className="p-2 text-dark-400 hover:text-white hover:bg-dark-800 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
@@ -713,6 +745,20 @@ export default function WorkspacePage() {
             >
               <ExternalLink className="w-4 h-4" />
             </button>
+          </div>
+          </div>
+          <div className="flex rounded-xl border border-white/[0.06] bg-black/25 p-1" aria-label="Preview device">
+            {([
+              ['desktop', Laptop, 'Desktop'],
+              ['tablet', Tablet, 'Tablet'],
+              ['mobile', Smartphone, 'Mobile'],
+            ] as const).map(([device, Icon, label]) => (
+              <button key={device} type="button" onClick={() => setPreviewDevice(device)}
+                aria-pressed={previewDevice === device} title={`${label} preview`}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] transition ${previewDevice === device ? 'bg-white/[0.09] text-cyan-200 shadow-inner' : 'text-slate-600 hover:text-slate-300'}`}>
+                <Icon className="h-3.5 w-3.5" /> {label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -747,13 +793,11 @@ export default function WorkspacePage() {
 
           {/* State 4: complete — live iframe */}
           {jobState === 'complete' && previewUrl && (
-            <iframe
-              key={previewKey}
-              src={previewUrl}
-              className="w-full h-full border-0"
-              title="Live Preview"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-            />
+            <div className="h-full overflow-auto bg-[radial-gradient(circle_at_50%_0%,rgba(16,185,129,.12),transparent_40%),#030509] p-3">
+              <div className="mx-auto h-full min-h-[32rem] overflow-hidden rounded-xl border border-emerald-300/10 bg-white shadow-[0_24px_80px_rgba(0,0,0,.55),0_0_40px_rgba(16,185,129,.08)] transition-[width] duration-300" style={{ width: previewWidth[previewDevice], maxWidth: '100%' }}>
+                <iframe key={previewKey} src={previewUrl} className="w-full h-full border-0" title={`${previewDevice} app preview`} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" />
+              </div>
+            </div>
           )}
 
           {jobState === 'complete' && (
@@ -792,6 +836,26 @@ export default function WorkspacePage() {
           </div>
         </div>
       </aside>
+
+      {previewExpanded && previewUrl && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-[#030509]/95 backdrop-blur-2xl" role="dialog" aria-modal="true" aria-label="Expanded app preview">
+          <div className="flex items-center justify-between border-b border-white/[0.08] px-5 py-3">
+            <div><p className="text-sm font-semibold text-white">Live app preview</p><p className="text-[11px] text-emerald-300/60">Interactive · {previewDevice} viewport</p></div>
+            <div className="flex items-center gap-2">
+              {([['desktop', Laptop], ['tablet', Tablet], ['mobile', Smartphone]] as const).map(([device, Icon]) => (
+                <button key={device} onClick={() => setPreviewDevice(device)} aria-pressed={previewDevice === device} title={`${device} preview`} className={`rounded-lg p-2 transition ${previewDevice === device ? 'bg-emerald-300/15 text-emerald-200' : 'text-slate-500 hover:bg-white/[0.06] hover:text-white'}`}><Icon className="h-4 w-4" /></button>
+              ))}
+              <button onClick={refreshPreview} title="Refresh preview" className="rounded-lg p-2 text-slate-500 hover:bg-white/[0.06] hover:text-white"><RefreshCw className="h-4 w-4" /></button>
+              <button onClick={() => setPreviewExpanded(false)} title="Close preview" className="ml-2 rounded-lg border border-white/[0.08] p-2 text-slate-400 hover:bg-white/[0.07] hover:text-white"><X className="h-4 w-4" /></button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-auto bg-[radial-gradient(circle_at_50%_0%,rgba(16,185,129,.14),transparent_38%),radial-gradient(circle_at_95%_95%,rgba(217,70,239,.1),transparent_32%)] p-5">
+            <div className="mx-auto h-full min-h-[38rem] overflow-hidden rounded-2xl border border-emerald-200/10 bg-white shadow-[0_30px_120px_rgba(0,0,0,.7),0_0_70px_rgba(16,185,129,.1)] transition-[width] duration-300" style={{ width: previewWidth[previewDevice], maxWidth: '100%' }}>
+              <iframe key={`expanded-${previewKey}`} src={previewUrl} className="h-full w-full border-0" title={`Expanded ${previewDevice} app preview`} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
