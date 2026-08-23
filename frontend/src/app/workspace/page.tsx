@@ -210,6 +210,7 @@ export default function WorkspacePage() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let sawTerminalEvent = false;
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -220,8 +221,18 @@ export default function WorkspacePage() {
           if (!line.startsWith('data: ')) continue;
           let payload: any;
           try { payload = JSON.parse(line.slice(6)); } catch { continue; }
+          if (payload.event === 'pipeline_complete' || payload.event === 'pipeline_error') {
+            sawTerminalEvent = true;
+          }
           handleStreamEvent(payload, jobId);
         }
+      }
+      // A proxy, reload, or browser stream boundary can close after the
+      // server persisted the terminal status but before the final SSE frame
+      // reaches React. Reuse the existing bounded status reconciliation path
+      // instead of leaving the workspace indefinitely in "building".
+      if (!sawTerminalEvent) {
+        throw new Error('Progress stream closed before a terminal event');
       }
     } catch (err: any) {
       setIsLoading(false);

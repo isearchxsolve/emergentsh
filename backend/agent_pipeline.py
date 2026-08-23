@@ -26,6 +26,27 @@ from .nim_client import NIMClient, NIMConfig
 from .sandbox_executor import SandboxExecutor
 
 
+# Product capabilities users should receive without having to understand or
+# repeatedly request an implementation checklist.  The user prompt describes
+# the *differentiating product idea*; this baseline is the quality floor for
+# every generated full-stack application.
+DEFAULT_PRODUCT_BASELINE = """
+Every generated application must include this production baseline by default:
+- polished responsive web UI with accessible keyboard interactions, loading,
+  empty, success, and error states;
+- authentication, secure authorization boundaries, input validation, and
+  useful seeded/demo data where the product needs user-owned records;
+- a complete frontend, backend API, persistent relational data model, and
+  documented local startup workflow;
+- structured logging and user-safe runtime error handling;
+- unit/API tests plus smoke coverage for the primary user journey;
+- a quality bar suitable for a product demo, not a static mockup.
+
+Treat these as mandatory defaults. The user request only needs to specify the
+product, audience, and any capabilities that are unique to that product.
+""".strip()
+
+
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
@@ -349,7 +370,12 @@ class PlannerAgent(BaseAgent):
     async def run(self, ctx: PipelineContext) -> PipelineContext:
         ctx.status = PipelineStatus.PLANNING
         plan = await self._call_nim(
-            user_message=f"Plan a full-stack application for: {ctx.user_prompt}",
+            user_message=(
+                "Plan a full-stack application for the user's product idea below. "
+                "Apply the mandatory product baseline without asking the user to repeat it.\n\n"
+                f"PRODUCT BASELINE:\n{DEFAULT_PRODUCT_BASELINE}\n\n"
+                f"USER PRODUCT IDEA:\n{ctx.user_prompt}"
+            ),
             temperature=0.3,
             max_tokens=3000,
         )
@@ -484,8 +510,17 @@ class BackendAgent(BaseAgent):
     async def run(self, ctx: PipelineContext) -> PipelineContext:
         ctx.status = PipelineStatus.BUILDING_BACKEND
         plan = ctx.artifacts.get("PLAN.md", "")
+        repair_context = ""
+        if ctx.errors and "Backend validation failed" in ctx.errors[-1]:
+            previous_attempt = ctx.artifacts.get("_backend_last_attempt.py", "")
+            repair_context = (
+                "\n\nA previous backend attempt failed validation. Return a corrected, "
+                "complete module only; do not repeat the syntax error.\n"
+                f"VALIDATION ERROR:\n{ctx.errors[-1]}\n\n"
+                f"PREVIOUS ATTEMPT:\n{previous_attempt}"
+            )
         code = await self._call_nim(
-            user_message=f"Build the complete FastAPI backend for:\n\n{plan}",
+            user_message=f"Build the complete FastAPI backend for:\n\n{plan}{repair_context}",
             temperature=0.2,
             max_tokens=12000,
         )
@@ -493,7 +528,11 @@ class BackendAgent(BaseAgent):
         try:
             ast.parse(code)
         except SyntaxError as exc:
+            # Preserve the exact failed attempt for the next repair pass
+            # without writing unvalidated code into the project workspace.
+            ctx.artifacts["_backend_last_attempt.py"] = code
             raise ValueError(f"Backend validation failed: generated Python is invalid: {exc}") from exc
+        ctx.artifacts.pop("_backend_last_attempt.py", None)
         ctx.set_artifact("backend/main.py", code)
         ctx.add_message(AgentMessage(
             from_role=self.role,
@@ -592,9 +631,37 @@ class QAAgent(BaseAgent):
         error_context = ""
         if ctx.errors and "Pytest execution failed" in ctx.errors[-1]:
             error_context = f"\n\nTEST EXECUTION FAILED. FIX THE TESTS OR BACKEND CODE:\n{ctx.errors[-1]}"
+            # A retry must repair the artifact that failed, not merely ask QA
+            # to emit a different test file.  The repaired module is written
+            # back into the shared context before tests are regenerated and
+            # rerun below.
+            repaired_backend = await self._call_nim(
+                user_message=(
+                    "Repair this FastAPI backend after its generated smoke/API tests failed. "
+                    "Return only complete runnable Python code. Preserve the requested "
+                    "product behavior, fix the concrete failure, and keep validation and "
+                    "authorization intact.\n\n"
+                    f"CURRENT BACKEND:\n{backend}\n\n"
+                    f"TEST FAILURE:\n{ctx.errors[-1]}"
+                ),
+                system_prompt=BackendAgent.SYSTEM_PROMPT,
+                temperature=0.1,
+                max_tokens=12000,
+            )
+            backend = unwrap_generated_code(repaired_backend)
+            try:
+                ast.parse(backend)
+            except SyntaxError as exc:
+                raise ValueError(f"Self-healing backend repair is invalid Python: {exc}") from exc
+            ctx.set_artifact("backend/main.py", backend)
 
         tests = await self._call_nim(
-            user_message=f"Write complete pytest tests for this FastAPI backend:\n\n{backend[:2000]}{error_context}",
+            user_message=(
+                "Write complete pytest tests for this FastAPI backend. Include a small "
+                "smoke test for the primary health/readiness path and API tests for the "
+                "main user journey.\n\n"
+                f"BACKEND:\n{backend[:4000]}{error_context}"
+            ),
             temperature=0.2,
             max_tokens=3000,
         )

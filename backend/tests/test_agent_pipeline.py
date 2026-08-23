@@ -1,6 +1,13 @@
 import pytest
 
-from backend.agent_pipeline import AgentPipeline, PipelineStatus, parse_design_tokens, unwrap_generated_code
+from backend.agent_pipeline import (
+    AgentPipeline,
+    BackendAgent,
+    PipelineContext,
+    PipelineStatus,
+    parse_design_tokens,
+    unwrap_generated_code,
+)
 
 
 class FencedPipelineClient:
@@ -31,6 +38,32 @@ async def test_pipeline_completes_with_common_model_presentation_variants() -> N
     assert ctx.artifacts["frontend/App.tsx"].startswith("import React")
     assert ctx.artifacts["backend/main.py"].startswith("from fastapi")
     assert ctx.artifacts["tests/test_backend.py"].startswith("def test_health")
+
+
+class RepairingBackendClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat_stream(self, messages, **_kwargs):
+        self.calls += 1
+        if self.calls == 1:
+            yield "def broken(:\n    pass"
+        else:
+            yield "from fastapi import FastAPI\napp = FastAPI()\n"
+
+
+@pytest.mark.asyncio
+async def test_backend_retry_receives_failed_attempt_and_self_repairs() -> None:
+    client = RepairingBackendClient()
+    pipeline = AgentPipeline(client)
+    context = PipelineContext(user_prompt="Build an app")
+    context.set_artifact("PLAN.md", "# Plan")
+
+    repaired = await pipeline._run_agent_with_retry(BackendAgent(client), context)
+
+    assert repaired.artifacts["backend/main.py"].startswith("from fastapi")
+    assert "_backend_last_attempt.py" not in repaired.artifacts
+    assert client.calls == 2
 
 
 @pytest.mark.parametrize(
