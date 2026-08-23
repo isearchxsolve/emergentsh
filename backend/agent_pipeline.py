@@ -24,6 +24,7 @@ import json
 
 from .nim_client import NIMClient, NIMConfig
 from .sandbox_executor import SandboxExecutor
+from .mobile_targets import detect_target, scaffold_for, verify_mobile_build
 
 
 # Product capabilities users should receive without having to understand or
@@ -92,6 +93,7 @@ class AgentRole(str, Enum):
     FRONTEND = "frontend"
     BACKEND = "backend"
     INTEGRATION = "integration"
+    PREVIEW = "preview"
     QA = "qa"
     DEVOPS = "devops"
 
@@ -117,6 +119,7 @@ class PipelineContext:
     run_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     user_prompt: str = ""
     project_dir: str = ""  # Root directory for generated project
+    target: str = "web"
     status: PipelineStatus = PipelineStatus.PENDING
     messages: List[AgentMessage] = field(default_factory=list)
     artifacts: Dict[str, str] = field(default_factory=dict)  # filename -> content
@@ -391,12 +394,15 @@ class PlannerAgent(BaseAgent):
 
     async def run(self, ctx: PipelineContext) -> PipelineContext:
         ctx.status = PipelineStatus.PLANNING
+        ctx.target = detect_target(ctx.user_prompt)
         plan = await self._call_nim(
             user_message=(
                 "Plan a full-stack application for the user's product idea below. "
                 "Apply the mandatory product baseline without asking the user to repeat it.\n\n"
                 f"PRODUCT BASELINE:\n{DEFAULT_PRODUCT_BASELINE}\n\n"
                 f"VISUAL QUALITY BASELINE:\n{DEFAULT_VISUAL_QUALITY_BASELINE}\n\n"
+                f"DELIVERY TARGET: {ctx.target}\n"
+                "Plan for this exact platform and its deployment requirements.\n\n"
                 f"USER PRODUCT IDEA:\n{ctx.user_prompt}"
             ),
             temperature=0.3,
@@ -488,9 +494,25 @@ class FrontendAgent(BaseAgent):
         if ctx.errors and "Frontend validation" in ctx.errors[-1]:
             error_context = f"\n\nPREVIOUS ERROR TO FIX:\n{ctx.errors[-1]}"
 
+        if ctx.target == "flutter":
+            request = (
+                "Build the complete Flutter presentation layer as lib/main.dart. "
+                "Use Material 3, responsive LayoutBuilder patterns, semantic labels, "
+                "complete loading/empty/error states, and the supplied design tokens. "
+                "Declare a public const GeneratedApp widget. Output only runnable Dart."
+            )
+        elif ctx.target == "react-native":
+            request = (
+                "Build the complete Expo Router React Native screen as app/index.tsx. "
+                "Use only React Native primitives and Expo-compatible packages, SafeAreaView, "
+                "responsive dimensions, accessibility labels, and complete state surfaces. "
+                "Do not use DOM elements or Tailwind CSS. Output runnable TypeScript only."
+            )
+        else:
+            request = "Build the complete React frontend."
         code = await self._call_nim(
             user_message=(
-                f"Build the complete React frontend for:\n\nPLAN:\n{plan}\n\n"
+                f"{request}\n\nPLAN:\n{plan}\n\n"
                 f"DESIGN TOKENS:\n{design}\n\nVISUAL QUALITY BASELINE:\n"
                 f"{DEFAULT_VISUAL_QUALITY_BASELINE}{error_context}"
             ),
@@ -499,26 +521,37 @@ class FrontendAgent(BaseAgent):
         )
         code = unwrap_generated_code(code)
         
-        # EM-4: structural design-token lint (replaces the old single-keyword
+        if ctx.target == "flutter":
+            if "GeneratedApp" not in code or "MaterialApp" not in code or "Widget" not in code:
+                raise ValueError("Frontend validation failed: Flutter entrypoint must declare GeneratedApp and MaterialApp")
+            artifact_name = "mobile/lib/main.dart"
+        elif ctx.target == "react-native":
+            if "react-native" not in code or not re.search(r"export\s+default", code):
+                raise ValueError("Frontend validation failed: Expo screen must import react-native and default-export a component")
+            artifact_name = "mobile/app/index.tsx"
+        else:
+          # EM-4: structural design-token lint (replaces the old single-keyword
         # string-search gate).
-        design_json: Optional[Dict[str, Any]] = None
-        try:
-            design_json = json.loads(design) if design else None
-        except (json.JSONDecodeError, TypeError):
-            design_json = None
-        violations = lint_frontend_design_tokens(code, design_json)
-        if violations:
-            raise ValueError(
-                "Frontend validation failed: design tokens not structurally applied -- "
-                + "; ".join(violations)
-            )
+          design_json: Optional[Dict[str, Any]] = None
+          try:
+              design_json = json.loads(design) if design else None
+          except (json.JSONDecodeError, TypeError):
+              design_json = None
+          violations = lint_frontend_design_tokens(code, design_json)
+          if violations:
+              raise ValueError("Frontend validation failed: design tokens not structurally applied -- " + "; ".join(violations))
+          artifact_name = "frontend/App.tsx"
 
-        ctx.set_artifact("frontend/App.tsx", code)
+        ctx.set_artifact(artifact_name, code)
+        for name, content in scaffold_for(ctx.target, "Emergent App").items():
+            if name != artifact_name:
+                ctx.set_artifact(name, content)
+        ctx.set_artifact("TARGET.json", json.dumps({"target": ctx.target, "platforms": ["android", "ios"] if ctx.target in {"flutter", "react-native"} else ["web"]}, indent=2))
         ctx.add_message(AgentMessage(
             from_role=self.role,
             to_role=AgentRole.BACKEND,
             content=code,
-            metadata={"artifact": "frontend/App.tsx"},
+            metadata={"artifact": artifact_name, "target": ctx.target},
         ))
         return ctx
 
@@ -568,6 +601,34 @@ class BackendAgent(BaseAgent):
             content=code,
             metadata={"artifact": "backend/main.py"},
         ))
+        return ctx
+
+
+class PreviewAgent(BaseAgent):
+    """Guarantee that every successful job has a loadable interactive preview."""
+    role = AgentRole.PREVIEW
+    SYSTEM_PROMPT = (
+        "You are a preview engineer. Produce one complete self-contained index.html for the "
+        "supplied product and design. It must use inline CSS and JavaScript only: no imports, "
+        "CDNs, remote fonts, remote images, placeholders, or network requirements. Implement "
+        "the primary interaction, responsive desktop/mobile layouts, and loading/empty/error "
+        "states. For native targets this is explicitly a faithful interactive simulation, not "
+        "a native runtime. Output HTML only, beginning with <!doctype html>."
+    )
+
+    async def run(self, ctx: PipelineContext) -> PipelineContext:
+        html = unwrap_generated_code(await self._call_nim(
+            user_message=f"TARGET: {ctx.target}\nPLAN:\n{ctx.artifacts.get('PLAN.md','')}\nDESIGN:\n{ctx.artifacts.get('design_tokens.json','')}",
+            temperature=0.2, max_tokens=6000,
+        ))
+        if "<!doctype html" not in html.lower() or "<script" not in html.lower() or "<style" not in html.lower():
+            raise ValueError("Preview validation failed: expected self-contained interactive HTML")
+        if re.search(r"(?:src|href)=[\"']https?://", html, re.I):
+            raise ValueError("Preview validation failed: remote preview dependency is not allowed")
+        ctx.set_artifact("index.html", html)
+        mode = "mobile_simulation" if ctx.target in {"flutter", "react-native"} else "interactive_web"
+        ctx.set_artifact("PREVIEW_MODE.json", json.dumps({"mode": mode, "target": ctx.target, "native_runtime": False if mode == "mobile_simulation" else None}, indent=2))
+        ctx.add_message(AgentMessage(from_role=self.role, to_role=AgentRole.QA, content="Interactive preview generated.", metadata={"artifact": "index.html", "mode": mode}))
         return ctx
 
 
@@ -655,6 +716,17 @@ class QAAgent(BaseAgent):
     async def run(self, ctx: PipelineContext) -> PipelineContext:
         ctx.status = PipelineStatus.QA
         backend = ctx.artifacts.get("backend/main.py", "")
+        if ctx.target in {"flutter", "react-native"} and ctx.errors and "Mobile build verification failed" in ctx.errors[-1]:
+            entry = "mobile/lib/main.dart" if ctx.target == "flutter" else "mobile/app/index.tsx"
+            repaired = unwrap_generated_code(await self._call_nim(
+                user_message=(f"Repair this {ctx.target} entrypoint using the exact build failure. "
+                              "Return only the complete runnable source file.\n\n"
+                              f"CURRENT SOURCE:\n{ctx.artifacts.get(entry, '')}\n\nFAILURE:\n{ctx.errors[-1]}"),
+                system_prompt=(f"You are an expert {ctx.target} mobile engineer. Repair the supplied "
+                               "entrypoint from the exact compiler/test output. Preserve product behavior "
+                               "and accessibility. Output source code only."), temperature=0.1, max_tokens=8000,
+            ))
+            ctx.set_artifact(entry, repaired)
         
         error_context = ""
         if ctx.errors and "Pytest execution failed" in ctx.errors[-1]:
@@ -709,6 +781,12 @@ class QAAgent(BaseAgent):
             success, output = await executor.run_pytest_async("tests/test_backend.py")
             if not success:
                 raise ValueError(f"Pytest execution failed:\n{output}")
+
+        if ctx.target in {"flutter", "react-native"}:
+            readiness = verify_mobile_build(ctx.project_dir, ctx.target, enabled=os.getenv("VERIFY_MOBILE_BUILDS", "true").lower() in {"1", "true", "yes"})
+            ctx.set_artifact("BUILD_READINESS.json", readiness.json())
+            if readiness.status == "build_failed":
+                raise ValueError(f"Mobile build verification failed:\n{readiness.message}")
                 
         ctx.add_message(AgentMessage(
             from_role=self.role,
@@ -799,6 +877,9 @@ class DevOpsAgent(BaseAgent):
             max_tokens=2000,
         )
         ctx.set_artifact("docker-compose.prod.yml", docker_compose_prod)
+
+        if ctx.target in {"flutter", "react-native"} and "BUILD_READINESS.json" not in ctx.artifacts:
+            ctx.set_artifact("BUILD_READINESS.json", verify_mobile_build(ctx.project_dir, ctx.target, enabled=False).json())
         
         ctx.status = PipelineStatus.COMPLETE
         ctx.completed_at = datetime.utcnow()
@@ -826,8 +907,7 @@ class AgentPipeline:
 
     def __init__(self, nim_client: NIMClient) -> None:
         self.nim = nim_client
-        # 7-agent chain: Planning -> Design -> Frontend -> Backend ->
-        # Integration -> QA -> DevOps. (SeleniumQAAgent remains defined for
+        # Required chain includes preview materialization before QA.
         # opt-in use but is not part of the default contract.)
         self._agents: List[BaseAgent] = [
             PlannerAgent(nim_client),
@@ -835,6 +915,7 @@ class AgentPipeline:
             FrontendAgent(nim_client),
             BackendAgent(nim_client),
             IntegrationAgent(nim_client),
+            PreviewAgent(nim_client),
             QAAgent(nim_client),
             DevOpsAgent(nim_client),
         ]
@@ -901,6 +982,7 @@ class AgentPipeline:
                 "data": {
                     "artifacts": list(ctx.artifacts.keys()),
                     "status": ctx.status.value,
+                    "target": ctx.target,
                 },
             }
 
@@ -911,5 +993,6 @@ class AgentPipeline:
                 "status": ctx.status.value,
                 "artifacts": list(ctx.artifacts.keys()),
                 "errors": ctx.errors,
+                "target": ctx.target,
             },
         }

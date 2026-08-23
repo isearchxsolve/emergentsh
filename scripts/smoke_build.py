@@ -21,12 +21,14 @@ async def run(prompt: str, use_mock: bool) -> dict:
     from backend.agent_pipeline import AgentPipeline
     job_id = f"smoke-{int(time.time())}"
     project_dir = PREVIEW_ROOT/job_id; project_dir.mkdir(parents=True, exist_ok=True)
-    if use_mock or not (os.getenv("NIM_API_KEY") or os.getenv("NVIDIA_API_KEY")):
+    from backend.app.services.nim_client import configured_inference_provider, get_inference_client
+    provider = configured_inference_provider()
+    configured = bool(os.getenv("OMNIROUTE_API_KEY")) if provider == "omniroute" else bool(os.getenv("NIM_API_KEY") or os.getenv("NVIDIA_API_KEY") or os.getenv("NGC_API_KEY"))
+    if use_mock or not configured:
         from backend.app.api.pipeline import _make_mock_client
         client, mode = _make_mock_client(), "mock"
     else:
-        from backend.app.services.nim_client import AsyncNIMClient
-        client, mode = AsyncNIMClient(), "live-NIM"
+        client, mode = get_inference_client(), f"live-{provider}"
     print(f"[smoke] mode={mode} dir={project_dir}")
     ctx = await AgentPipeline(client).run(user_prompt=prompt, project_dir=str(project_dir))
     arts = list(getattr(ctx, "artifacts", {}) or {})
@@ -34,7 +36,8 @@ async def run(prompt: str, use_mock: bool) -> dict:
         if p.is_file() and p.name != "index.html":
             rel = str(p.relative_to(project_dir)).replace("\\","/")
             if rel not in arts: arts.append(rel)
-    _index(project_dir, prompt, arts)
+    if not (project_dir / "index.html").is_file():
+        _index(project_dir, prompt, arts)
     status = getattr(getattr(ctx,"status",None),"value", str(getattr(ctx,"status","ok")))
     return {"job_id": job_id, "status": status, "mode": mode, "project_dir": str(project_dir), "artifacts": arts, "errors": list(getattr(ctx,"errors",[]) or [])}
 

@@ -25,6 +25,8 @@ class FencedPipelineClient:
             yield "```python\nfrom fastapi import FastAPI\napp = FastAPI()\n@app.get('/health')\ndef health(): return {'ok': True}\n```"
         elif "qa engineer" in system:
             yield "```python\ndef test_health():\n    assert True\n```"
+        elif "preview engineer" in system:
+            yield "<!doctype html><html><head><style>body{color:#fff;background:#07110d}</style></head><body><button onclick=\"this.textContent='Ready'\">Run</button><script>document.body.dataset.ready='true'</script></body></html>"
         else:
             yield "```yaml\nservices: {}\n```"
 

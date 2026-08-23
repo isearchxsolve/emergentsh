@@ -1,13 +1,14 @@
 """Pipeline API — multi-agent generation. NVIDIA NIM exclusive (mock for smoke)."""
 from __future__ import annotations
-import os, uuid, json, asyncio, shutil
+import os, uuid, json, asyncio, shutil, socket
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, or_
 
 from backend.app.core.auth import get_current_active_user
 from backend.app.core.database import AsyncSessionLocal, get_db
@@ -35,6 +36,7 @@ class PipelineStatusResponse(BaseModel):
     preview_url: Optional[str] = None
     errors: List[str] = []
     message: str = ""
+    target: str = "web"
 
 
 def _status_response(job: PipelineJob) -> PipelineStatusResponse:
@@ -46,6 +48,7 @@ def _status_response(job: PipelineJob) -> PipelineStatusResponse:
         preview_url=job.preview_url,
         errors=job.errors or [],
         message=job.message or "",
+        target=job.target or "web",
     )
 
 def _make_mock_client():
@@ -66,7 +69,13 @@ def _make_mock_client():
                 "typography": {"font_family": "Inter, system-ui, sans-serif"},
             })
         elif "frontend engineer" in system:
-            yield (
+            request = ((messages[-1].get("content") or "") if messages else "").lower()
+            if "flutter presentation" in request:
+                yield "import 'package:flutter/material.dart';\nclass GeneratedApp extends StatelessWidget { const GeneratedApp({super.key}); @override Widget build(BuildContext context) => MaterialApp(home: Scaffold(body: Semantics(label: 'Home', child: const Text('Generated app')))); }\nvoid main()=>runApp(const GeneratedApp());\n"
+            elif "expo router" in request:
+                yield "import React from 'react';\nimport { SafeAreaView, Text, Pressable } from 'react-native';\nexport default function Home(){return <SafeAreaView accessibilityLabel='Home'><Text>Generated app</Text><Pressable accessibilityRole='button'><Text>Start</Text></Pressable></SafeAreaView>}\n"
+            else:
+              yield (
                 "import React from 'react';\n"
                 "export default function App() {\n"
                 "  return (\n"
@@ -76,13 +85,15 @@ def _make_mock_client():
                 "    </main>\n"
                 "  );\n"
                 "}\n"
-            )
+              )
         elif "fastapi backend engineer" in system:
             yield "from fastapi import FastAPI\napp = FastAPI()\n@app.get('/health')\ndef health():\n    return {'status':'healthy'}\n"
         elif "devops and integration specialist" in system:
             yield "version: '3.8'\nservices:\n  app:\n    build: .\n    ports: ['8080:8080']\n"
         elif "qa engineer" in system:
             yield "def test_health():\n    assert True\n"
+        elif "preview engineer" in system:
+            yield "<!doctype html><html><head><style>body{background:#07110d;color:#fff;font-family:system-ui;padding:3rem}button{padding:1rem;background:#34d399;border:0;border-radius:1rem}</style></head><body><main><h1>Generated app</h1><p id='state'>Ready</p><button onclick=\"document.getElementById('state').textContent='Working'\">Start</button></main><script>document.documentElement.dataset.ready='true'</script></body></html>"
         elif "devops engineer" in system:
             yield "name: CI\non: [push]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n"
         else:
@@ -196,6 +207,44 @@ async def _run_job_stream(job_id: str, prompt: str, project_dir: Path, use_mock:
                 await client.close()
             except Exception:
                 pass
+
+
+async def _claim_and_run_job(job_id: str) -> bool:
+    """Atomically lease a queued/expired job, then execute it once."""
+    worker_id = f"{socket.gethostname()}:{os.getpid()}"
+    now = datetime.utcnow()
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            update(PipelineJob).where(
+                PipelineJob.job_id == job_id,
+                or_(PipelineJob.status == "queued", (PipelineJob.status == "running") & (PipelineJob.lease_expires_at < now)),
+            ).values(status="running", worker_id=worker_id, lease_expires_at=now + timedelta(hours=1), attempts=PipelineJob.attempts + 1)
+        )
+        await db.commit()
+        if result.rowcount != 1:
+            return False
+        job = await db.get(PipelineJob, job_id)
+        prompt, project_dir, use_mock = job.prompt, Path(job.project_dir), job.use_mock
+    await _run_job_stream(job_id, prompt, project_dir, use_mock)
+    return True
+
+
+async def pipeline_worker_loop() -> None:
+    """Replica-safe durable worker; atomic leases prevent duplicate execution."""
+    interval = float(os.getenv("PIPELINE_WORKER_POLL_SECONDS", "1"))
+    while True:
+        try:
+            now = datetime.utcnow()
+            async with AsyncSessionLocal() as db:
+                ids = (await db.execute(select(PipelineJob.job_id).where(or_(PipelineJob.status == "queued", (PipelineJob.status == "running") & (PipelineJob.lease_expires_at < now))).order_by(PipelineJob.created_at).limit(4))).scalars().all()
+            for job_id in ids:
+                await _claim_and_run_job(job_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Durable rows remain queued/leased for another polling iteration.
+            pass
+        await asyncio.sleep(interval)
 def _job_owner(job: PipelineJob, user: User) -> None:
     """EM-1: jobs are owned; a non-superuser may only touch their own jobs."""
     owner_id = job.user_id
@@ -238,10 +287,11 @@ async def start_pipeline(
     job_id = uuid.uuid4().hex[:12]
     project_dir = _PREVIEW_ROOT / job_id
     project_dir.mkdir(parents=True, exist_ok=True)
-    job = PipelineJob(job_id=job_id, user_id=current_user.id, prompt=req.prompt, project_dir=str(project_dir))
+    from backend.mobile_targets import detect_target
+    job = PipelineJob(job_id=job_id, user_id=current_user.id, prompt=req.prompt, project_dir=str(project_dir), use_mock=req.use_mock, target=detect_target(req.prompt))
     db.add(job)
     await db.flush()
-    background.add_task(_run_job_stream, job_id, req.prompt, project_dir, req.use_mock)
+    background.add_task(_claim_and_run_job, job_id)
     return _status_response(job)
 
 @router.get("/stream/{job_id}")

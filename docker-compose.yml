@@ -46,16 +46,18 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://emergent:emergent_dev@postgres:5432/emergent
       REDIS_URL: redis://redis:6379/0
-      NIM_API_KEY: ${NIM_API_KEY}
-      NVIDIA_API_KEY: ${NVIDIA_API_KEY}
-      NIM_STRICT_MODE: ${NIM_STRICT_MODE:-true}
+      INFERENCE_PROVIDER: ${INFERENCE_PROVIDER:-omniroute}
+      INFERENCE_STRICT_MODE: ${INFERENCE_STRICT_MODE:-true}
+      NIM_API_KEY: ${NIM_API_KEY:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
       NIM_BASE_URL: ${NIM_BASE_URL:-https://integrate.api.nvidia.com/v1}
-      # Opt-in secondary route. NVIDIA NIM remains primary; set this only
-      # after `python scripts/probe_omniroute.py` reports a real completion.
+      # Primary scalable gateway; OmniRoute owns NVIDIA key rotation.
       OMNIROUTE_BASE_URL: ${OMNIROUTE_BASE_URL:-http://127.0.0.1:20128/v1}
       OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY}
       OMNIROUTE_FALLBACK_ENABLED: ${OMNIROUTE_FALLBACK_ENABLED:-false}
       OMNIROUTE_FALLBACK_MODELS: ${OMNIROUTE_FALLBACK_MODELS:-nvidia/nvidia/nemotron-3-super-120b-a12b,nvidia/nvidia/nemotron-3-nano-30b-a3b,nvidia/meta/llama-3.1-8b-instruct}
+      PIPELINE_WORKER_POLL_SECONDS: ${PIPELINE_WORKER_POLL_SECONDS:-1}
+      VERIFY_MOBILE_BUILDS: ${VERIFY_MOBILE_BUILDS:-true}
       SECRET_KEY: ${SECRET_KEY:?Set a 32+ character non-default JWT signing key}
       DEBUG: ${DEBUG:-true}
     ports:

@@ -1,6 +1,6 @@
 """Emergent.sh Clone API — NVIDIA NIM exclusive."""
 from __future__ import annotations
-import os
+import os, asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI
@@ -15,7 +15,13 @@ async def lifespan(app: FastAPI):
     # EM-1 fail-closed boot: refuse to serve on a forgeable JWT signing key.
     validate_secret_key()
     await init_db()
+    worker = asyncio.create_task(pipeline_api.pipeline_worker_loop())
     yield
+    worker.cancel()
+    try:
+        await worker
+    except asyncio.CancelledError:
+        pass
     await close_db()
 
 app = FastAPI(title="Emergent.sh Clone API", version="1.0.0", lifespan=lifespan)

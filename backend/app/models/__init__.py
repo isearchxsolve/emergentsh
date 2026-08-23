@@ -186,6 +186,11 @@ class PipelineJob(Base):
     message = Column(Text, nullable=False, default="Queued")
     prompt = Column(Text, nullable=False)
     project_dir = Column(String(1000), nullable=False)
+    target = Column(String(50), nullable=False, default="web")
+    use_mock = Column(Boolean, nullable=False, default=False)
+    worker_id = Column(String(100), nullable=True, index=True)
+    lease_expires_at = Column(DateTime, nullable=True, index=True)
+    attempts = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False, onupdate=datetime.utcnow)
 

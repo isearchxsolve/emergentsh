@@ -12,6 +12,10 @@ Set `DATABASE_URL` and run:
 python -m alembic upgrade head
 ```
 
+Current head is `b724e18a09f1`, which adds durable worker leases, retry counts,
+target metadata, and the persisted mock/live execution selection to pipeline
+jobs. Multiple replicas may poll safely because claiming is atomic.
+
 The backend container performs this command before it starts Uvicorn.
 
 ## Existing legacy environments

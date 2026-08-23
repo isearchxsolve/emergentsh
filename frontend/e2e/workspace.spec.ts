@@ -7,13 +7,13 @@ test('authenticated workspace completes a build and exposes preview/export', asy
     await route.fulfill({ json: { id: 'user-1', username: 'e2e', email: 'e2e@example.com', credits: 10 } });
   });
   await page.route('**/api/pipeline/run', async route => {
-    await route.fulfill({ json: { job_id: 'e2e-job-1', status: 'queued', phase: 'queued', artifacts: [], errors: [] } });
+    await route.fulfill({ json: { job_id: 'e2e-job-1', status: 'queued', phase: 'queued', target: 'react-native', artifacts: [], errors: [] } });
   });
   await page.route('**/api/pipeline/stream/e2e-job-1', async route => {
     const events = [
       { event: 'agent_start', role: 'planner', data: {} },
       { event: 'agent_done', role: 'planner', data: { artifacts: ['PLAN.md'], status: 'planning' } },
-      { event: 'pipeline_complete', role: 'orchestrator', data: { status: 'complete', artifacts: ['PLAN.md'], errors: [] } },
+      { event: 'pipeline_complete', role: 'orchestrator', data: { status: 'complete', target: 'react-native', artifacts: ['PLAN.md'], errors: [] } },
     ];
     const body = events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('');
     await route.fulfill({ status: 200, contentType: 'text/event-stream', body });
@@ -41,6 +41,8 @@ test('authenticated workspace completes a build and exposes preview/export', asy
   await expect(page.getByTitle('Mobile preview')).toHaveAttribute('aria-pressed', 'true');
   await page.getByTitle('Expand preview').click();
   await expect(page.getByRole('dialog', { name: 'Expanded app preview' })).toBeVisible();
+  await expect(page.getByText(/react-native interactive simulation/i)).toBeVisible();
+  await expect(page.locator('iframe').last()).not.toHaveAttribute('sandbox', /allow-same-origin/);
   await page.getByTitle('Close preview').click();
   await expect(page.getByTitle('Open in new tab')).toBeVisible();
   await expect(page.getByTitle('Download code (.zip)')).toBeVisible();

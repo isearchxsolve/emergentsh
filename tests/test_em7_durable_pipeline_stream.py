@@ -39,3 +39,33 @@ async def test_pipeline_events_are_durable_and_replayable_by_each_consumer(monke
     assert [event.event_type for event in consumer_a] == ["agent_start", "agent_done"]
     assert [event.id for event in consumer_a] == [event.id for event in consumer_b]
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_pipeline_job_lease_allows_only_one_replica(monkeypatch, tmp_path):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    sessions = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    monkeypatch.setattr(pipeline, "AsyncSessionLocal", sessions)
+    calls = []
+
+    async def fake_run(job_id, prompt, project_dir, use_mock):
+        calls.append((job_id, prompt, use_mock))
+
+    monkeypatch.setattr(pipeline, "_run_job_stream", fake_run)
+    async with sessions() as db:
+        db.add(User(id="worker-user", email="worker@example.com", username="worker", hashed_password="hash"))
+        db.add(PipelineJob(job_id="leased-job", user_id="worker-user", prompt="mobile app", project_dir=str(tmp_path), use_mock=True))
+        await db.commit()
+
+    first = await pipeline._claim_and_run_job("leased-job")
+    second = await pipeline._claim_and_run_job("leased-job")
+    assert first is True
+    assert second is False
+    assert calls == [("leased-job", "mobile app", True)]
+    async with sessions() as db:
+        job = await db.get(PipelineJob, "leased-job")
+        assert job.attempts == 1
+        assert job.worker_id
+    await engine.dispose()

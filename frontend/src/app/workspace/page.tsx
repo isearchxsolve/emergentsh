@@ -92,6 +92,7 @@ export default function WorkspacePage() {
   const [previewKey, setPreviewKey] = useState(0);
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>('desktop');
   const [previewExpanded, setPreviewExpanded] = useState(false);
+  const [outputTarget, setOutputTarget] = useState('web');
 
   const loadCredits = useCallback(async (t: string) => {
     try {
@@ -270,6 +271,7 @@ export default function WorkspacePage() {
         setJobState('complete');
         setCurrentPhase('complete');
         setPreviewUrl(status.preview_url || `/preview/${jobId}/`);
+        setOutputTarget(status.target || 'web');
         pushSystem('Build completed while the live progress stream was reconnecting.');
       } else if (status?.status === 'failed') {
         setJobState('error');
@@ -324,6 +326,7 @@ export default function WorkspacePage() {
       } else {
         setCurrentPhase('complete');
         setJobState('complete');
+        setOutputTarget(payload.data?.target || 'web');
         setPreviewUrl(`/preview/${jobId}/`);
         setMessages(prev => [...prev, {
           id: Date.now().toString(),
@@ -377,6 +380,7 @@ export default function WorkspacePage() {
 
       const data = await res.json();
       const jobId = data.job_id;
+      setOutputTarget(data.target || 'web');
       setCurrentJobId(jobId);
       loadCredits(token);
       streamJob(jobId, token);
@@ -795,7 +799,7 @@ export default function WorkspacePage() {
           {jobState === 'complete' && previewUrl && (
             <div className="h-full overflow-auto bg-[radial-gradient(circle_at_50%_0%,rgba(16,185,129,.12),transparent_40%),#030509] p-3">
               <div className="mx-auto h-full min-h-[32rem] overflow-hidden rounded-xl border border-emerald-300/10 bg-white shadow-[0_24px_80px_rgba(0,0,0,.55),0_0_40px_rgba(16,185,129,.08)] transition-[width] duration-300" style={{ width: previewWidth[previewDevice], maxWidth: '100%' }}>
-                <iframe key={previewKey} src={previewUrl} className="w-full h-full border-0" title={`${previewDevice} app preview`} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" />
+                <iframe key={previewKey} src={previewUrl} className="w-full h-full border-0" title={`${previewDevice} app preview`} sandbox="allow-scripts allow-forms allow-popups allow-modals" />
               </div>
             </div>
           )}
@@ -840,7 +844,7 @@ export default function WorkspacePage() {
       {previewExpanded && previewUrl && (
         <div className="fixed inset-0 z-50 flex flex-col bg-[#030509]/95 backdrop-blur-2xl" role="dialog" aria-modal="true" aria-label="Expanded app preview">
           <div className="flex items-center justify-between border-b border-white/[0.08] px-5 py-3">
-            <div><p className="text-sm font-semibold text-white">Live app preview</p><p className="text-[11px] text-emerald-300/60">Interactive · {previewDevice} viewport</p></div>
+            <div><p className="text-sm font-semibold text-white">Live app preview</p><p className="text-[11px] text-emerald-300/60">{outputTarget === 'web' || outputTarget === 'pwa' ? 'Interactive runtime' : `${outputTarget} interactive simulation`} · {previewDevice} viewport</p></div>
             <div className="flex items-center gap-2">
               {([['desktop', Laptop], ['tablet', Tablet], ['mobile', Smartphone]] as const).map(([device, Icon]) => (
                 <button key={device} onClick={() => setPreviewDevice(device)} aria-pressed={previewDevice === device} title={`${device} preview`} className={`rounded-lg p-2 transition ${previewDevice === device ? 'bg-emerald-300/15 text-emerald-200' : 'text-slate-500 hover:bg-white/[0.06] hover:text-white'}`}><Icon className="h-4 w-4" /></button>
@@ -851,7 +855,7 @@ export default function WorkspacePage() {
           </div>
           <div className="flex-1 overflow-auto bg-[radial-gradient(circle_at_50%_0%,rgba(16,185,129,.14),transparent_38%),radial-gradient(circle_at_95%_95%,rgba(217,70,239,.1),transparent_32%)] p-5">
             <div className="mx-auto h-full min-h-[38rem] overflow-hidden rounded-2xl border border-emerald-200/10 bg-white shadow-[0_30px_120px_rgba(0,0,0,.7),0_0_70px_rgba(16,185,129,.1)] transition-[width] duration-300" style={{ width: previewWidth[previewDevice], maxWidth: '100%' }}>
-              <iframe key={`expanded-${previewKey}`} src={previewUrl} className="h-full w-full border-0" title={`Expanded ${previewDevice} app preview`} sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" />
+              <iframe key={`expanded-${previewKey}`} src={previewUrl} className="h-full w-full border-0" title={`Expanded ${previewDevice} app preview`} sandbox="allow-scripts allow-forms allow-popups allow-modals" />
             </div>
           </div>
         </div>

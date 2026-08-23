@@ -29,21 +29,22 @@ export NIM_API_KEY=nvapi-...   # optional; without it, mock NIM is used
 docker compose -f docker-compose.smoke.yml up --build
 ```
 
-## Live NIM
+## Scaled inference through OmniRoute
 
-Set `NIM_API_KEY` or `NVIDIA_API_KEY` (from https://build.nvidia.com). Omit `use_mock` / use `--live` on the smoke script.
+Production should set `INFERENCE_PROVIDER=omniroute`,
+`INFERENCE_STRICT_MODE=true`, and `OMNIROUTE_API_KEY`. OmniRoute owns the
+underlying NVIDIA key rotation; individual NVIDIA keys are not configured in
+EmergentSH. Direct `INFERENCE_PROVIDER=nim` remains available for development.
 
-## Optional OmniRoute failover
+## OmniRoute route health
 
-NIM remains primary. To enable a secondary local OmniRoute route only after a
-real completion succeeds, set `OMNIROUTE_API_KEY`, then run:
+After setting the gateway credential, verify an actual completion with:
 
 ```bash
 python scripts/probe_omniroute.py
 ```
 
-Set `OMNIROUTE_FALLBACK_ENABLED=true` only when that probe reports `live:
-true`. The default ordered routes are measured NVIDIA routes through OmniRoute:
+The default ordered routes are measured NVIDIA routes through OmniRoute:
 `nvidia/nvidia/nemotron-3-super-120b-a12b`,
 `nvidia/nvidia/nemotron-3-nano-30b-a3b`, and
 `nvidia/meta/llama-3.1-8b-instruct`. Override their order with the comma

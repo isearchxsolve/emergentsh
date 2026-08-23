@@ -122,11 +122,11 @@ class TestSharedRetryPolicy:
         assert "_run_agent_with_retry" in stream_src
 
 
-class TestSevenAgentChain:
-    def test_default_chain_is_seven_agents(self):
+class TestRequiredAgentChain:
+    def test_default_chain_materializes_preview_before_qa(self):
         pipeline = AgentPipeline(AsyncMock())
         roles = [a.role.value for a in pipeline._agents]
         assert roles == [
             "planner", "designer", "frontend", "backend",
-            "integration", "qa", "devops",
-        ], f"the generated-project contract is a 7-agent chain, got {roles}"
+            "integration", "preview", "qa", "devops",
+        ], f"the generated-project contract must preview before QA, got {roles}"

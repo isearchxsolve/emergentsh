@@ -9,6 +9,10 @@
 | Database migration strategy | Closed for new deployments | Alembic configuration and initial revision `9936aa792817` are present. Production containers run `alembic upgrade head`; startup no longer calls `create_all` unless the explicit local-only `AUTO_CREATE_SCHEMA=true` switch is set. See `MIGRATIONS.md`. |
 | Token-revocation schema | Closed | `token_revocations` is included in Alembic revision `9936aa792817`. |
 | Multi-worker SSE delivery | Closed | Jobs and append-only events are stored in `pipeline_jobs` and `pipeline_events`. Each stream reads events by database ID, so independent clients and API replicas do not consume one another's events. `test_em7_durable_pipeline_stream.py` verifies replay from two independent sessions. |
+| Crash-recoverable pipeline execution | Closed | Replica workers atomically lease durable jobs. Expired work can be reclaimed after process loss without double execution; migration `b724e18a09f1` adds lease and attempt metadata. |
+| Scaled inference | Closed | `INFERENCE_PROVIDER=omniroute` makes OmniRoute the primary gateway and leaves NVIDIA key rotation outside EmergentSH. Strict mode fails closed. |
+| Mobile source contracts | Closed | Active platform routing generates Expo/React Native or Flutter Android/iOS projects, CI, tests, identifiers, environment templates, build-readiness evidence, and an explicitly labelled interactive simulation. |
+| Generated preview materialization | Closed | A required preview stage emits validated, offline, self-contained `index.html`; successful jobs no longer advertise an absent preview. |
 
 ## Still blocked by required external input
 
