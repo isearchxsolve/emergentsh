@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from backend.app.services.nim_client import AsyncNIMClient
+from backend.app.services.nim_client import AsyncNIMClient, AsyncOmniRouteClient
 
 
 async def make_client(transport: httpx.MockTransport) -> AsyncNIMClient:
@@ -19,6 +19,29 @@ async def make_client(transport: httpx.MockTransport) -> AsyncNIMClient:
             "Accept": "application/json",
         },
         transport=transport,
+    )
+    return client
+
+
+async def make_failover_client(
+    monkeypatch: pytest.MonkeyPatch,
+    primary_transport: httpx.MockTransport,
+    fallback_transport: httpx.MockTransport,
+) -> AsyncNIMClient:
+    """Create a NIM-primary client with isolated mocked OmniRoute transport."""
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "omni-test-key")
+    client = AsyncNIMClient(
+        api_key="nim-test-key",
+        base_url="https://nim.test/v1",
+        enable_omniroute_fallback=True,
+    )
+    assert client._fallback is not None
+    await client._client.aclose()
+    await client._fallback._client.aclose()
+    client._client = httpx.AsyncClient(base_url=client.base_url, transport=primary_transport)
+    client._fallback._client = httpx.AsyncClient(
+        base_url=client._fallback.base_url,
+        transport=fallback_transport,
     )
     return client
 
@@ -82,3 +105,98 @@ async def test_list_models_and_stream_keep_v1_base_path() -> None:
         await client.close()
 
     assert chunks == ["Hello", "!"]
+
+
+@pytest.mark.asyncio
+async def test_successful_nim_completion_never_calls_omniroute(monkeypatch: pytest.MonkeyPatch) -> None:
+    fallback_calls = 0
+
+    def primary_handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"content": "nim result"}}]})
+
+    def fallback_handler(_: httpx.Request) -> httpx.Response:
+        nonlocal fallback_calls
+        fallback_calls += 1
+        return httpx.Response(200, json={"choices": [{"message": {"content": "unexpected"}}]})
+
+    client = await make_failover_client(monkeypatch, httpx.MockTransport(primary_handler), httpx.MockTransport(fallback_handler))
+    try:
+        result = await client.chat_completion(messages=[{"role": "user", "content": "hi"}])
+    finally:
+        await client.close()
+
+    assert result["choices"][0]["message"]["content"] == "nim result"
+    assert fallback_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_nim_failure_uses_next_working_omniroute_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    attempted_models: list[str] = []
+
+    def primary_handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"error": "NIM unavailable"})
+
+    def fallback_handler(request: httpx.Request) -> httpx.Response:
+        model = json.loads(request.content)["model"]
+        attempted_models.append(model)
+        if model == "route-one":
+            return httpx.Response(503, json={"error": "route unavailable"})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "fallback result"}}]})
+
+    client = await make_failover_client(monkeypatch, httpx.MockTransport(primary_handler), httpx.MockTransport(fallback_handler))
+    assert client._fallback is not None
+    client._fallback.models = ["route-one", "route-two"]
+    try:
+        result = await client.chat_completion(messages=[{"role": "user", "content": "hi"}])
+    finally:
+        await client.close()
+
+    assert result["choices"][0]["message"]["content"] == "fallback result"
+    assert attempted_models == ["route-one", "route-two"]
+
+
+@pytest.mark.asyncio
+async def test_omniroute_failure_opens_circuit(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(503, json={"error": "gateway unavailable"})
+
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "omni-test-key")
+    client = AsyncOmniRouteClient(models=["route-one"], cooldown_seconds=60)
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(base_url=client.base_url, transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(RuntimeError, match="All configured"):
+            await client.chat_completion(messages=[{"role": "user", "content": "hi"}])
+        with pytest.raises(RuntimeError, match="circuit is open"):
+            await client.chat_completion(messages=[{"role": "user", "content": "hi"}])
+    finally:
+        await client.close()
+
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_nim_stream_failure_falls_back_before_any_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    def primary_handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"error": "NIM unavailable"})
+
+    def fallback_handler(request: httpx.Request) -> httpx.Response:
+        assert json.loads(request.content)["stream"] is True
+        return httpx.Response(
+            200,
+            text='data: {"choices":[{"delta":{"content":"fallback"}}]}\n\n'
+            'data: {"choices":[{"delta":{"content":" stream"}}]}\n\n'
+            "data: [DONE]\n\n",
+        )
+
+    client = await make_failover_client(monkeypatch, httpx.MockTransport(primary_handler), httpx.MockTransport(fallback_handler))
+    try:
+        chunks = [chunk async for chunk in client.chat_stream(messages=[{"role": "user", "content": "hi"}])]
+    finally:
+        await client.close()
+
+    assert chunks == ["fallback", " stream"]

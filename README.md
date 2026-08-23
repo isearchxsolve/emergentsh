@@ -1,6 +1,6 @@
 # EmergentSH — Emergent.sh clone (NVIDIA NIM inference)
 
-Production-oriented clone of [emergent.sh](https://emergent.sh): describe an app in plain English; a multi-agent team plans, codes, tests, and produces a full-stack project. **All generative inference is routed through NVIDIA NIM** (OpenAI-compatible).
+Production-oriented clone of [emergent.sh](https://emergent.sh): describe an app in plain English; a multi-agent team plans, codes, tests, and produces a full-stack project. **NVIDIA NIM is the primary OpenAI-compatible inference path.** An explicitly enabled OmniRoute secondary path can fail over through measured NVIDIA model routes when NIM has a transport/upstream failure.
 
 ## Quick smoke (no Docker, no API key)
 
@@ -32,6 +32,24 @@ docker compose -f docker-compose.smoke.yml up --build
 ## Live NIM
 
 Set `NIM_API_KEY` or `NVIDIA_API_KEY` (from https://build.nvidia.com). Omit `use_mock` / use `--live` on the smoke script.
+
+## Optional OmniRoute failover
+
+NIM remains primary. To enable a secondary local OmniRoute route only after a
+real completion succeeds, set `OMNIROUTE_API_KEY`, then run:
+
+```bash
+python scripts/probe_omniroute.py
+```
+
+Set `OMNIROUTE_FALLBACK_ENABLED=true` only when that probe reports `live:
+true`. The default ordered routes are measured NVIDIA routes through OmniRoute:
+`nvidia/nvidia/nemotron-3-super-120b-a12b`,
+`nvidia/nvidia/nemotron-3-nano-30b-a3b`, and
+`nvidia/meta/llama-3.1-8b-instruct`. Override their order with the comma
+separated `OMNIROUTE_FALLBACK_MODELS` variable. The fallback circuit opens for
+30 seconds after all routes fail, so a saturated gateway cannot extend every
+NIM failure.
 
 ## Layout
 
