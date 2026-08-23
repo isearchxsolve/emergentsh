@@ -1,0 +1,34 @@
+import { auth } from '@/lib/auth';
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+
+const publicPaths = ['/auth/signin', '/auth/error', '/api/auth', '/', '/docs'];
+
+export default auth((req) => {
+  const { nextUrl } = req;
+  const isLoggedIn = !!req.auth;
+  const isPublicPath = publicPaths.some((path) => nextUrl.pathname.startsWith(path));
+
+  if (!isLoggedIn && !isPublicPath) {
+    const signInUrl = new URL('/auth/signin', nextUrl);
+    signInUrl.searchParams.set('callbackUrl', nextUrl.pathname);
+    return NextResponse.redirect(signInUrl);
+  }
+
+  if (isLoggedIn && nextUrl.pathname === '/auth/signin') {
+    return NextResponse.redirect(new URL('/dashboard', nextUrl));
+  }
+});
+
+export const config = {
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api (API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico, sitemap.xml, robots.txt (metadata files)
+     */
+    '/((?!api|_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)',
+  ],
+};

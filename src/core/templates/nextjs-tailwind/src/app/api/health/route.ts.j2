@@ -1,0 +1,14 @@
+import { NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
+
+export async function GET() {
+  const session = await auth();
+
+  return NextResponse.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    version: process.env.npm_package_version || '0.1.0',
+    authenticated: !!session?.user,
+    user: session?.user ? { id: session.user.id, email: session.user.email } : null,
+  });
+}

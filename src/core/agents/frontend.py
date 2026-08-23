@@ -1,0 +1,219 @@
+from __future__ import annotations
+from abc import ABC
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+from datetime import datetime
+from pathlib import Path
+from .base import BaseAgent, AgentRole, AgentPersonality, AgentCapability, AgentContext, AgentTask, HandoffPacket
+from ..agents.frontend_generator import FrontendGenerator, ComponentSpec, PageSpec
+from ..workspace import Project, get_workspace
+
+
+@dataclass
+class FrontendTaskResult:
+    files_created: List[str] = field(default_factory=list)
+    components: List[Dict[str, Any]] = field(default_factory=list)
+    pages: List[Dict[str, Any]] = field(default_factory=list)
+    hooks: List[Dict[str, Any]] = field(default_factory=list)
+    types: Dict[str, Any] = field(default_factory=dict)
+    tests: List[str] = field(default_factory=list)
+
+
+class FrontendAgent(BaseAgent):
+    def __init__(
+        self,
+        agent_id: str,
+        personality: AgentPersonality = AgentPersonality.PRAGMATIC,
+        model_config: Dict[str, Any] = None,
+        signals: Any = None,
+        project: Project = None,
+    ):
+        capabilities = [
+            AgentCapability(
+                name="component_development",
+                description="Build reusable UI components",
+                tool_names=["create_component", "create_form", "create_data_display"],
+                produces_artifacts=["component_files", "storybook_stories"],
+            ),
+            AgentCapability(
+                name="page_implementation",
+                description="Implement pages and routing",
+                tool_names=["create_page", "setup_routing", "add_layout"],
+                produces_artifacts=["page_files", "route_config"],
+            ),
+            AgentCapability(
+                name="state_management",
+                description="Implement client-side state management",
+                tool_names=["setup_query_client", "create_store", "add_mutations"],
+                produces_artifacts=["store_files", "query_hooks"],
+            ),
+            AgentCapability(
+                name="api_integration",
+                description="Integrate with backend APIs",
+                tool_names=["generate_api_client", "create_api_hooks", "handle_auth"],
+                produces_artifacts=["api_client", "api_hooks"],
+            ),
+            AgentCapability(
+                name="styling",
+                description="Implement responsive styling and design system",
+                tool_names=["apply_design_system", "create_styles", "setup_tailwind"],
+                produces_artifacts=["style_files", "design_tokens"],
+            ),
+            AgentCapability(
+                name="testing",
+                description="Write frontend tests",
+                tool_names=["write_unit_tests", "write_integration_tests", "write_e2e_tests"],
+                produces_artifacts=["test_files"],
+            ),
+        ]
+        system_prompt = """You are a Frontend Agent in the emergent.sh multi-agent system.
+Your role is to implement frontend code based on design specifications and API contracts.
+You operate with a PRAGMATIC personality: practical, results-oriented, and efficient.
+You produce clean, maintainable, and performant frontend code.
+
+Key responsibilities:
+1. Implement UI components from design specifications
+2. Build pages with proper routing and data fetching
+3. Set up state management (TanStack Query, Zustand, etc.)
+4. Integrate with backend APIs using typed clients
+5. Apply design system tokens and responsive styling
+6. Ensure accessibility (WCAG 2.1 AA compliance)
+7. Optimize performance (code splitting, lazy loading, memoization)
+8. Write comprehensive tests
+
+Tech stack awareness: You adapt to the project's frontend framework
+(Next.js, Vite+React, SvelteKit, Nuxt, Expo/React Native).
+
+Output format: Generate file artifacts that are persisted to the workspace."""
+        super().__init__(
+            agent_id=agent_id,
+            role=AgentRole.FRONTEND,
+            personality=personality,
+            capabilities=capabilities,
+            system_prompt=system_prompt,
+            model_config=model_config or {},
+            signals=signals,
+        )
+        self._project = project
+        self._generator = None
+        if project:
+            self._generator = FrontendGenerator(project, get_workspace())
+
+    def set_project(self, project: Project) -> None:
+        self._project = project
+        self._generator = FrontendGenerator(project, get_workspace())
+
+    def execute(self, task: AgentTask, context: AgentContext) -> Dict[str, Any]:
+        self.set_task(task)
+        self.set_context(context)
+        if not self._generator:
+            return {"error": "No project configured for frontend generation"}
+        task_type = task.input_data.get("type", "implement_frontend")
+        if task_type == "create_component":
+            return self._create_component(task.input_data)
+        elif task_type == "create_page":
+            return self._create_page(task.input_data)
+        elif task_type == "create_hook":
+            return self._create_hook(task.input_data)
+        elif task_type == "setup_state_management":
+            return self._setup_state_management(task.input_data)
+        elif task_type == "integrate_api":
+            return self._integrate_api(task.input_data)
+        elif task_type == "apply_styling":
+            return self._apply_styling(task.input_data)
+        elif task_type == "write_tests":
+            return self._write_tests(task.input_data)
+        else:
+            return self._implement_frontend(task.input_data)
+
+    def build_system_prompt(self, context: AgentContext) -> str:
+        base = self.system_prompt
+        if context and context.input_artifacts:
+            base += "\nInput Artifacts:\n"
+            for key, value in context.input_artifacts.items():
+                base += f"- {key}: {value}\n"
+        if self._project:
+            base += f"\nProject Tech Stack: {self._project.tech_stack}\n"
+        return base
+
+    def _implement_frontend(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        design_spec = input_data.get("design_spec", {})
+        api_contract = input_data.get("api_contract", {})
+        self.emit_status("Implementing frontend...", "info")
+        result = FrontendTaskResult()
+        components = design_spec.get("components", [])
+        for comp in components:
+            spec = ComponentSpec(
+                name=comp.get("name", "Component"),
+                type=comp.get("type", "component"),
+                props=comp.get("props", []),
+                hooks=comp.get("hooks", []),
+                imports=comp.get("imports", []),
+                description=comp.get("description", ""),
+            )
+            artifacts = self._generator.generate_component(spec)
+            self._generator.persist_artifacts(artifacts, self._current_task.id)
+            result.files_created.extend(artifacts.keys())
+            result.components.append(comp)
+        pages = design_spec.get("pages", [])
+        for page in pages:
+            spec = PageSpec(
+                route=page.get("route", "/"),
+                name=page.get("name", "Page"),
+                description=page.get("description", ""),
+                components=page.get("components", []),
+                data_fetching=page.get("data_fetching", "client"),
+                auth_required=page.get("auth_required", False),
+            )
+            artifacts = self._generator.generate_page(spec)
+            self._generator.persist_artifacts(artifacts, self._current_task.id)
+            result.files_created.extend(artifacts.keys())
+            result.pages.append(page)
+        endpoints = api_contract.get("endpoints", [])
+        if endpoints:
+            artifacts = self._generator.generate_api_client(endpoints)
+            self._generator.persist_artifacts(artifacts, self._current_task.id)
+            result.files_created.extend(artifacts.keys())
+        schemas = api_contract.get("schemas", {})
+        if schemas:
+            artifacts = self._generator.generate_types(schemas)
+            self._generator.persist_artifacts(artifacts, self._current_task.id)
+            result.files_created.extend(artifacts.keys())
+            result.types = schemas
+        self.complete_task({
+            "files_created": result.files_created,
+            "components": result.components,
+            "pages": result.pages,
+            "hooks": result.hooks,
+            "types": result.types,
+            "tests": result.tests,
+        })
+        return {"files_created": result.files_created}
+
+    def prepare_handoff(
+        self,
+        to_role: AgentRole,
+        payload: Dict[str, Any],
+        artifacts: Dict[str, Any],
+        requires_approval: bool = False,
+    ) -> HandoffPacket:
+        """Prepare a handoff packet to another agent."""
+        packet = super().prepare_handoff(to_role, payload, artifacts, requires_approval)
+        packet.payload["frontend_context"] = {
+            "components": artifacts.get("components", []),
+            "pages": artifacts.get("pages", []),
+            "api_client": artifacts.get("api_client", {}),
+            "types": artifacts.get("types", {}),
+        }
+        return packet
+
+
+def create_frontend_agent(
+    agent_id: str,
+    personality: AgentPersonality = AgentPersonality.PRAGMATIC,
+    model_config: Dict[str, Any] = None,
+    signals: Any = None,
+    project: Project = None,
+) -> FrontendAgent:
+    """Factory function to create a FrontendAgent."""
+    return FrontendAgent(agent_id, personality, model_config, signals, project)

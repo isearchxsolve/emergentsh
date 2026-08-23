@@ -1,0 +1,29 @@
+{
+  "name": "{{ project_name_kebab }}",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "{{ dev_command }}",
+    "build": "{{ build_command }}",
+    "start": "{{ start_command }}",
+    "lint": "{{ lint_command }}",
+    "typecheck": "{{ typecheck_command }}",
+    "test": "{{ test_command }}",
+    "test:watch": "{{ test_watch_command }}",
+    "test:coverage": "{{ test_coverage_command }}",
+    "db:generate": "{{ db_generate_command }}",
+    "db:push": "{{ db_push_command }}",
+    "db:migrate": "{{ db_migrate_command }}",
+    "db:studio": "{{ db_studio_command }}"
+  },
+  "dependencies": {
+    {% for dep in dependencies %}"{{ dep.name }}": "{{ dep.version }}",{% endfor %}
+  },
+  "devDependencies": {
+    {% for dep in dev_dependencies %}"{{ dep.name }}": "{{ dep.version }}",{% endfor %}
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

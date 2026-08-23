@@ -1,0 +1,148 @@
+# {{ project_name }}
+
+{{ project_description }}
+
+## Tech Stack
+
+- **Frontend:** {{ tech_stack.frontend }}
+- **Styling:** {{ tech_stack.styling }}
+{% if tech_stack.backend %}- **Backend:** {{ tech_stack.backend }}{% endif %}
+{% if tech_stack.database %}- **Database:** {{ tech_stack.database }}{% endif %}
+{% if tech_stack.auth %}- **Auth:** {{ tech_stack.auth }}{% endif %}
+{% if tech_stack.deployment %}- **Deployment:** {{ tech_stack.deployment }}{% endif %}
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 20+
+- pnpm 9+
+{% if tech_stack.database == 'postgresql' %}- PostgreSQL 15+{% endif %}
+
+### Installation
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd {{ project_name_kebab }}
+
+# Install dependencies
+pnpm install
+
+# Set up environment variables
+cp .env.example .env
+# Edit .env with your configuration
+
+{% if tech_stack.database == 'postgresql' %}
+# Set up database
+pnpm db:generate
+pnpm db:push
+{% endif %}
+
+# Start development server
+pnpm dev
+```
+
+### Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DATABASE_URL` | PostgreSQL connection string | {% if tech_stack.database == 'postgresql' %}Yes{% else %}No{% endif %} |
+| `NEXTAUTH_SECRET` | NextAuth.js secret key | Yes |
+| `NEXTAUTH_URL` | Application URL | Yes |
+
+## Available Scripts
+
+| Command | Description |
+|---------|-------------|
+| `pnpm dev` | Start development server |
+| `pnpm build` | Build for production |
+| `pnpm start` | Start production server |
+| `pnpm lint` | Run ESLint |
+| `pnpm typecheck` | Run TypeScript compiler |
+| `pnpm test` | Run tests |
+| `pnpm db:generate` | Generate database migrations |
+| `pnpm db:push` | Push schema to database |
+| `pnpm db:migrate` | Run migrations |
+| `pnpm db:studio` | Open Prisma Studio |
+
+## Project Structure
+
+```
+{{ project_name_kebab }}/
+├── src/
+│   ├── app/                    # Next.js App Router pages
+│   ├── components/             # React components
+│   │   ├── ui/                 # Base UI components (shadcn/ui)
+│   │   └── features/           # Feature-specific components
+│   ├── lib/                    # Utility functions
+│   │   ├── utils.ts            # General utilities
+│   │   ├── validations.ts      # Zod schemas
+│   │   └── auth.ts             # Auth configuration
+│   ├── hooks/                  # Custom React hooks
+│   ├── types/                  # TypeScript types
+│   └── styles/                 # Global styles
+├── prisma/
+│   └── schema.prisma           # Database schema
+├── public/                     # Static assets
+├── .github/workflows/          # CI/CD pipelines
+└── Configuration files
+```
+
+## Development
+
+### Code Style
+
+- **Formatter:** Prettier
+- **Linter:** ESLint (with Next.js, React, TypeScript rules)
+- **Type Checking:** TypeScript strict mode
+- **Git Hooks:** Husky + lint-staged
+
+### Adding Dependencies
+
+```bash
+# Production dependency
+pnpm add <package>
+
+# Development dependency
+pnpm add -D <package>
+```
+
+### Database Changes
+
+```bash
+# 1. Edit prisma/schema.prisma
+# 2. Generate migration
+pnpm db:generate
+
+# 3. Apply to database
+pnpm db:push  # Development
+pnpm db:migrate  # Production
+```
+
+## Deployment
+
+### Vercel (Recommended)
+
+1. Push to GitHub
+2. Import project in Vercel
+3. Add environment variables
+4. Deploy
+
+### Docker
+
+```bash
+# Build
+docker build -t {{ project_name_kebab }} .
+
+# Run
+docker run -p 3000:3000 {{ project_name_kebab }}
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.

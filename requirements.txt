@@ -1,0 +1,9 @@
+# Root requirements - install both frontend and backend
+# Frontend
+# (handled by npm in frontend directory)
+
+# Backend
+-r backend/requirements.txt
+
+# Desktop app (PySide6)
+PySide6>=6.6.0

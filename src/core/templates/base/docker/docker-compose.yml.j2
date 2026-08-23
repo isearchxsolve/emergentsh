@@ -1,0 +1,57 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=${DATABASE_URL}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  {% if tech_stack.database == 'postgresql' %}
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB={{ project_name_snake }}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  {% endif %}
+
+  {% if tech_stack.database == 'redis' or tech_stack.database == 'postgresql' %}
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+  {% endif %}
+
+volumes:
+  {% if tech_stack.database == 'postgresql' %}
+  postgres_data:
+  {% endif %}
+  {% if tech_stack.database == 'redis' or tech_stack.database == 'postgresql' %}
+  redis_data:
+  {% endif %}

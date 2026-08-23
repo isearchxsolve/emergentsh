@@ -1,0 +1,228 @@
+# {{ project_name }}
+
+{{ project_description }}
+
+## Tech Stack
+
+- **Framework:** Next.js 14 (App Router)
+- **Language:** TypeScript
+- **Styling:** Tailwind CSS + shadcn/ui
+- **Database:** Prisma + PostgreSQL
+- **Auth:** NextAuth.js v5 (Auth.js)
+- **Forms:** React Hook Form + Zod
+- **State:** TanStack Query + Zustand
+- **Testing:** Vitest + React Testing Library
+- **Linting:** ESLint + Prettier
+- **Deployment:** Vercel / Docker
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 20+
+- pnpm 9+
+- PostgreSQL 15+ (or use Docker)
+
+### Installation
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd {{ project_name_kebab }}
+
+# Install dependencies
+pnpm install
+
+# Set up environment variables
+cp .env.example .env
+# Edit .env with your configuration
+
+# Generate Prisma client
+pnpm db:generate
+
+# Push schema to database
+pnpm db:push
+
+# Start development server
+pnpm dev
+```
+
+### Environment Variables
+
+See `.env.example` for all required variables:
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DATABASE_URL` | PostgreSQL connection string | Yes |
+| `NEXTAUTH_SECRET` | Auth.js secret key | Yes |
+| `NEXTAUTH_URL` | Application URL | Yes |
+| `GITHUB_ID` | GitHub OAuth client ID | No |
+| `GITHUB_SECRET` | GitHub OAuth secret | No |
+| `GOOGLE_ID` | Google OAuth client ID | No |
+| `GOOGLE_SECRET` | Google OAuth secret | No |
+
+## Project Structure
+
+```
+{{ project_name_kebab }}/
+├── src/
+│   ├── app/                    # Next.js App Router pages
+│   │   ├── (auth)/            # Auth route group
+│   │   │   ├── signin/
+│   │   │   └── signup/
+│   │   ├── (dashboard)/       # Protected routes
+│   │   │   └── dashboard/
+│   │   ├── api/               # API routes
+│   │   │   ├── auth/          # NextAuth.js endpoints
+│   │   │   └── health/        # Health check
+│   │   ├── globals.css        # Global styles
+│   │   ├── layout.tsx         # Root layout
+│   │   └── page.tsx           # Home page
+│   ├── components/
+│   │   ├── ui/                # shadcn/ui components
+│   │   └── features/          # Feature-specific components
+│   ├── lib/
+│   │   ├── auth.ts            # Auth configuration
+│   │   ├── prisma.ts          # Prisma client
+│   │   ├── utils.ts           # Utility functions
+│   │   └── validations.ts     # Zod schemas
+│   ├── hooks/                 # Custom React hooks
+│   └── types/                 # TypeScript types
+├── prisma/
+│   └── schema.prisma          # Database schema
+├── public/                    # Static assets
+├── Configuration files
+└── .github/workflows/         # CI/CD pipelines
+```
+
+## Available Scripts
+
+| Command | Description |
+|---------|-------------|
+| `pnpm dev` | Start development server |
+| `pnpm build` | Build for production |
+| `pnpm start` | Start production server |
+| `pnpm lint` | Run ESLint |
+| `pnpm typecheck` | Run TypeScript compiler check |
+| `pnpm test` | Run tests |
+| `pnpm test:watch` | Run tests in watch mode |
+| `pnpm test:coverage` | Run tests with coverage |
+| `pnpm db:generate` | Generate Prisma client |
+| `pnpm db:push` | Push schema to database |
+| `pnpm db:migrate` | Run migrations (dev) |
+| `pnpm db:migrate:prod` | Run migrations (prod) |
+| `pnpm db:studio` | Open Prisma Studio |
+| `pnpm db:seed` | Seed database |
+
+## Database
+
+### Schema
+
+The database uses Prisma ORM with PostgreSQL. Main models:
+
+- **User** - Authentication and profile
+- **Account** - OAuth accounts (NextAuth)
+- **Session** - User sessions
+- **VerificationToken** - Email verification
+- **Post** - Example content model
+
+### Migrations
+
+```bash
+# Development: push schema changes directly
+pnpm db:push
+
+# Production: create and run migrations
+pnpm db:migrate
+```
+
+### Prisma Studio
+
+```bash
+pnpm db:studio
+```
+
+Opens a visual database editor at http://localhost:5555
+
+## Authentication
+
+Configured with NextAuth.js v5 (Auth.js) with:
+
+- **Credentials** - Email/password with bcrypt
+- **GitHub** - OAuth provider
+- **Google** - OAuth provider
+
+Protected routes are wrapped with the `(dashboard)` route group and middleware.
+
+### Adding Providers
+
+1. Add provider to `src/lib/auth.ts`
+2. Add environment variables to `.env`
+3. Update `src/app/(auth)/signin/page.tsx`
+
+## Styling
+
+- **Tailwind CSS** for utility-first styling
+- **shadcn/ui** for accessible components
+- **CSS Variables** for theming (light/dark mode)
+- **class-variance-authority** for component variants
+
+### Adding Components
+
+```bash
+# Add shadcn/ui component
+pnpm dlx shadcn@latest add button
+```
+
+## Testing
+
+### Unit Tests
+
+```bash
+pnpm test
+```
+
+### Coverage
+
+```bash
+pnpm test:coverage
+```
+
+### Watch Mode
+
+```bash
+pnpm test:watch
+```
+
+## Deployment
+
+### Vercel (Recommended)
+
+1. Push to GitHub
+2. Import project in Vercel
+3. Add environment variables
+4. Deploy
+
+### Docker
+
+```bash
+# Build image
+docker build -t {{ project_name_kebab }} .
+
+# Run container
+docker run -p 3000:3000 {{ project_name_kebab }}
+```
+
+### Docker Compose (with database)
+
+```bash
+docker-compose up -d
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.

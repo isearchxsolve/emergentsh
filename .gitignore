@@ -1,0 +1,27 @@
+node_modules/
+.next/
+dist/
+build/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.cache/
+.turbo/
+*.log
+unzipped_backup/
+
+# Local application state and generated preview artifacts
+*.db
+preview_apps/
+playwright-report/
+test-results/
+.pytest_cache/
+.coverage
+coverage.xml
+
+# Local configuration and editor state
+.env
+.env.*
+!.env.example
+.vscode/

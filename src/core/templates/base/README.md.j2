@@ -1,0 +1,84 @@
+# {{ project_name }}
+
+{{ project_description }}
+
+## Tech Stack
+
+- **Frontend:** {{ tech_stack.frontend | default('TBD') }}
+- **Backend:** {{ tech_stack.backend | default('TBD') }}
+- **Database:** {{ tech_stack.database | default('TBD') }}
+- **Styling:** {{ tech_stack.styling | default('TBD') }}
+- **Auth:** {{ tech_stack.auth | default('TBD') }}
+- **Deployment:** {{ tech_stack.deployment | default('TBD') }}
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 20+
+- pnpm 9+
+- {% if tech_stack.database == 'postgresql' %}PostgreSQL 15+{% elif tech_stack.database == 'sqlite' %}SQLite 3{% else %}Database TBD{% endif %}
+
+### Installation
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd {{ project_name_kebab }}
+
+# Install dependencies
+pnpm install
+
+# Set up environment variables
+cp .env.example .env
+# Edit .env with your configuration
+
+# Initialize database
+pnpm db:push
+
+# Start development server
+pnpm dev
+```
+
+### Environment Variables
+
+See `.env.example` for all required variables.
+
+## Project Structure
+
+```
+{{ project_name_kebab }}/
+├── src/                    # Source code
+│   ├── app/               # Next.js App Router pages
+│   ├── components/        # React components
+│   ├── lib/               # Utility functions
+│   ├── hooks/             # Custom React hooks
+│   ├── types/             # TypeScript types
+│   └── styles/            # Global styles
+├── public/                # Static assets
+├── prisma/                # Database schema
+├── docker/                # Docker configuration
+├── .github/               # GitHub Actions
+└── docs/                  # Documentation
+```
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `pnpm dev` | Start development server |
+| `pnpm build` | Build for production |
+| `pnpm start` | Start production server |
+| `pnpm lint` | Run ESLint |
+| `pnpm typecheck` | Run TypeScript compiler |
+| `pnpm test` | Run tests |
+| `pnpm db:push` | Push schema to database |
+| `pnpm db:migrate` | Run migrations |
+
+## Deployment
+
+Configured for **{{ tech_stack.deployment | default('Vercel') }}** deployment.
+
+## License
+
+MIT

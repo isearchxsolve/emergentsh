@@ -1,0 +1,77 @@
+{
+  "total": 14,
+  "passed": 13,
+  "failed": 1,
+  "results": [
+    {
+      "name": "sign-in card renders",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "register button present",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no workspace chrome while signed out",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "register -> signed in",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "empty state renders",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "settings panel opens",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "refresh balance button present",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "sidebar toggle works",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "GitHub Sync button removed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "loading state renders",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "complete state renders",
+      "ok": false,
+      "detail": ""
+    },
+    {
+      "name": "credits badge shows a number",
+      "ok": true,
+      "detail": "999 Credits"
+    },
+    {
+      "name": "sign out returns to sign-in card",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "reload while signed out stays signed out",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

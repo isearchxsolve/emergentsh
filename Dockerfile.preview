@@ -1,0 +1,21 @@
+# Preview Server Dockerfile (for live preview of generated apps)
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nodejs \
+    npm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy preview server code
+COPY src/core/preview ./src/core/preview
+
+EXPOSE 3001
+
+CMD ["python", "-m", "src.core.preview.dev_server"]

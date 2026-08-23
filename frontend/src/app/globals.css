@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --foreground-rgb: 255, 255, 255;
+  --background-start-rgb: 5, 8, 13;
+  --background-end-rgb: 13, 19, 29;
+  --glass-bg: rgba(14, 22, 33, 0.68);
+  --glass-border: rgba(148, 163, 184, 0.16);
+  --glass-highlight: rgba(255, 255, 255, 0.08);
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  min-height: 100vh;
+  background-color: rgb(var(--background-start-rgb));
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    radial-gradient(circle at 15% 10%, rgba(14, 165, 233, 0.16), transparent 28rem),
+    radial-gradient(circle at 85% 85%, rgba(34, 197, 94, 0.08), transparent 24rem),
+    linear-gradient(145deg, rgb(var(--background-start-rgb)), rgb(var(--background-end-rgb)));
+  background-size: 48px 48px, 48px 48px, auto, auto, auto;
+  font-family: 'Outfit', sans-serif;
+  letter-spacing: 0;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Premium 2026-Style Glassmorphism & Neon Glow Utilities */
+@layer components {
+  .glass-panel {
+    @apply border backdrop-blur-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_16px_40px_rgba(0,0,0,0.16)];
+    position: relative;
+    overflow: hidden;
+    background: var(--glass-bg);
+    border-color: var(--glass-border);
+  }
+
+  .glass-panel::before {
+    content: '';
+    display: block;
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background: linear-gradient(120deg, var(--glass-highlight), transparent 32%);
+  }
+  
+  .glass-panel-hover {
+    @apply hover:border-primary-400/40 hover:shadow-glow-primary transition-all duration-300;
+  }
+  
+  .shadow-glow-primary {
+    box-shadow: 0 0 20px rgba(var(--primary-500, 139, 92, 246), 0.15),
+                inset 0 0 10px rgba(var(--primary-500, 139, 92, 246), 0.05);
+  }
+  
+  .bg-mesh-dark {
+    background-color: rgb(var(--background-start-rgb));
+    background-image: 
+      radial-gradient(at 40% 20%, rgba(var(--primary-600, 124, 58, 237), 0.1) 0px, transparent 50%),
+      radial-gradient(at 80% 0%, rgba(var(--primary-500, 139, 92, 246), 0.15) 0px, transparent 50%),
+      radial-gradient(at 0% 50%, rgba(var(--primary-700, 109, 40, 217), 0.1) 0px, transparent 50%);
+  }
+}
+
+@layer utilities {
+  .animate-blob-spin {
+    animation: blob-spin 20s linear infinite;
+  }
+  .animate-reveal-up {
+    animation: reveal-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+}
+
+@keyframes blob-spin {
+  from { transform: translate(-50%, -50%) rotate(0deg) scale(1); }
+  50% { transform: translate(-50%, -50%) rotate(180deg) scale(1.1); }
+  to { transform: translate(-50%, -50%) rotate(360deg) scale(1); }
+}
+
+@keyframes reveal-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
