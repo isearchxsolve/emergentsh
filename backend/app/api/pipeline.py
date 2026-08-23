@@ -147,6 +147,35 @@ async def _run_job_stream(job_id: str, prompt: str, project_dir: Path, use_mock:
                 artifacts = event["data"].get("artifacts", [])
                 status = event["data"].get("status", "running")
                 await _update_job(job_id, artifacts=artifacts, status=status)
+            elif event["event"] == "agent_error":
+                # A stage failure is terminal for the sequential pipeline.
+                # Persist it immediately so a disconnected SSE client can
+                # never observe a false successful completion later.
+                status = "failed"
+                error = event["data"].get("error", "Agent failed")
+                await _update_job(
+                    job_id,
+                    artifacts=artifacts,
+                    status="failed",
+                    phase="failed",
+                    errors=[error],
+                    message=f"Pipeline failed: {error}",
+                    preview_url=None,
+                )
+            elif event["event"] == "pipeline_complete":
+                artifacts = event["data"].get("artifacts", artifacts)
+                status = event["data"].get("status", status)
+                errors = event["data"].get("errors", [])
+                if status == "failed":
+                    await _update_job(
+                        job_id,
+                        artifacts=artifacts,
+                        status="failed",
+                        phase="failed",
+                        errors=errors,
+                        message="Pipeline failed",
+                        preview_url=None,
+                    )
                 
         for p in project_dir.rglob("*"):
             if p.is_file():

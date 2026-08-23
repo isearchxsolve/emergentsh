@@ -268,9 +268,9 @@ def parse_design_tokens(raw_design: str) -> Dict[str, Any]:
 
 
 def unwrap_generated_code(raw_output: str) -> str:
-    """Remove a single Markdown code fence from a model-generated artifact."""
+    """Extract model-generated code from a Markdown fence when present."""
     output = raw_output.strip()
-    fenced = re.fullmatch(r"```[^\n]*\n(.*?)\n?```", output, re.DOTALL)
+    fenced = re.search(r"```[^\n]*\n(.*?)\n?```", output, re.DOTALL)
     return fenced.group(1).strip() if fenced else output
 
 
@@ -487,7 +487,7 @@ class BackendAgent(BaseAgent):
         code = await self._call_nim(
             user_message=f"Build the complete FastAPI backend for:\n\n{plan}",
             temperature=0.2,
-            max_tokens=6000,
+            max_tokens=12000,
         )
         code = unwrap_generated_code(code)
         try:

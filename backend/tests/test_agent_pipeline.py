@@ -70,4 +70,5 @@ def test_parse_design_tokens_descends_into_recognizable_custom_section() -> None
 
 def test_unwrap_generated_code_removes_language_fence_only() -> None:
     assert unwrap_generated_code("```python\nprint('ok')\n```") == "print('ok')"
+    assert unwrap_generated_code("Here is the module:\n```python\nprint('ok')\n```") == "print('ok')"
     assert unwrap_generated_code("print('ok')") == "print('ok')"
