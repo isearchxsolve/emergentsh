@@ -5,7 +5,26 @@ import json
 import httpx
 import pytest
 
-from backend.app.services.nim_client import AsyncNIMClient, AsyncOmniRouteClient
+from backend.app.services.nim_client import AsyncNIMClient, AsyncOmniRouteClient, configured_inference_provider, get_inference_client
+
+
+def test_auto_provider_prefers_omniroute_without_nvidia_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INFERENCE_PROVIDER", "auto")
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "gateway-key")
+    for name in ("NIM_API_KEY", "NVIDIA_API_KEY", "NGC_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    assert configured_inference_provider() == "omniroute"
+    client = get_inference_client()
+    assert isinstance(client, AsyncOmniRouteClient)
+
+
+def test_explicit_omniroute_never_requires_nvidia_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INFERENCE_PROVIDER", "omniroute")
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "gateway-key")
+    monkeypatch.delenv("NIM_API_KEY", raising=False)
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    client = get_inference_client()
+    assert isinstance(client, AsyncOmniRouteClient)
 
 
 async def make_client(transport: httpx.MockTransport) -> AsyncNIMClient:

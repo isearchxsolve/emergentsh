@@ -118,26 +118,26 @@ async def _run_job_stream(job_id: str, prompt: str, project_dir: Path, use_mock:
     try:
         from backend.agent_pipeline import AgentPipeline
         
-        nim_strict = os.getenv("NIM_STRICT_MODE", "false").lower() in ("true", "1")
-        if nim_strict:
-            api_key = os.getenv("NIM_API_KEY") or os.getenv("NVIDIA_API_KEY")
-            if not api_key:
-                raise NIMInferenceError("NIM_API_KEY is missing or invalid in strict mode.")
-            from backend.app.services.nim_client import AsyncNIMClient
-            client = AsyncNIMClient()
-            await _update_job(job_id, message="Running with live NVIDIA NIM")
+        inference_strict = os.getenv("INFERENCE_STRICT_MODE", os.getenv("NIM_STRICT_MODE", "false")).lower() in ("true", "1")
+        from backend.app.services.nim_client import configured_inference_provider, get_inference_client
+        provider = configured_inference_provider()
+        provider_configured = bool(os.getenv("OMNIROUTE_API_KEY")) if provider == "omniroute" else bool(os.getenv("NIM_API_KEY") or os.getenv("NVIDIA_API_KEY") or os.getenv("NGC_API_KEY"))
+        if inference_strict:
+            if not provider_configured:
+                raise NIMInferenceError(f"{provider} credential is missing in strict mode.")
+            client = get_inference_client()
+            await _update_job(job_id, message=f"Running with live {provider}")
         else:
-            if use_mock or not (os.getenv("NIM_API_KEY") or os.getenv("NVIDIA_API_KEY") or os.getenv("NGC_API_KEY")):
+            if use_mock or not provider_configured:
                 client = _make_mock_client()
-                await _update_job(job_id, message="Running with mock NIM")
+                await _update_job(job_id, message="Running with mock inference")
             else:
                 try:
-                    from backend.app.services.nim_client import AsyncNIMClient
-                    client = AsyncNIMClient()
-                    await _update_job(job_id, message="Running with live NVIDIA NIM")
+                    client = get_inference_client()
+                    await _update_job(job_id, message=f"Running with live {provider}")
                 except Exception as e:
                     client = _make_mock_client()
-                    await _update_job(job_id, message=f"NIM unavailable ({e}); mock")
+                    await _update_job(job_id, message=f"Inference unavailable ({e}); mock")
                     
         pipeline = AgentPipeline(client)
         

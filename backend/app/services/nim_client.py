@@ -1,8 +1,8 @@
-"""NVIDIA NIM primary client with an opt-in OmniRoute failover transport.
+"""OpenAI-compatible inference transports for NVIDIA NIM and OmniRoute.
 
-NVIDIA NIM remains the primary inference provider.  When explicitly enabled,
-OmniRoute is used only after an NIM transport/upstream failure and only with a
-configured, measured model route.  Credentials stay in environment variables
+OmniRoute can be selected as the primary scalable gateway, allowing it to own
+NVIDIA key rotation and upstream capacity. Direct NIM remains available for
+development or emergency operation. Credentials stay in environment variables
 and are never written to application state or logs.
 """
 
@@ -356,4 +356,26 @@ class AsyncNIMClient:
 
 def get_nim_client() -> AsyncNIMClient:
     """Factory used by FastAPI dependency injection."""
+    return AsyncNIMClient()
+
+
+def configured_inference_provider() -> str:
+    """Resolve the provider without silently downgrading a configured gateway."""
+    requested = os.getenv("INFERENCE_PROVIDER", "auto").strip().lower()
+    if requested not in {"auto", "omniroute", "nim"}:
+        raise ValueError("INFERENCE_PROVIDER must be auto, omniroute, or nim")
+    if requested == "auto":
+        return "omniroute" if os.getenv("OMNIROUTE_API_KEY", "").strip() else "nim"
+    return requested
+
+
+def get_inference_client():
+    """Create the configured primary transport.
+
+    In OmniRoute mode individual NVIDIA keys are deliberately neither accepted
+    nor inspected; rotation belongs to the gateway.
+    """
+    provider = configured_inference_provider()
+    if provider == "omniroute":
+        return AsyncOmniRouteClient()
     return AsyncNIMClient()

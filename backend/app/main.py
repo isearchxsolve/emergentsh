@@ -30,8 +30,12 @@ app.mount("/preview", StaticFiles(directory=str(_preview), html=True), name="pre
 
 @app.get("/")
 async def root():
-    return {"name": "Emergent.sh Clone API", "version": "1.0.0", "inference": "NVIDIA NIM exclusive", "docs": "/docs", "pipeline": "/api/pipeline/run"}
+    return {"name": "Emergent.sh Clone API", "version": "1.0.0", "inference": os.getenv("INFERENCE_PROVIDER", "auto"), "docs": "/docs", "pipeline": "/api/pipeline/run"}
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "nim_configured": bool(os.getenv("NIM_API_KEY") or os.getenv("NVIDIA_API_KEY"))}
+    provider = os.getenv("INFERENCE_PROVIDER", "auto").lower()
+    omni = bool(os.getenv("OMNIROUTE_API_KEY"))
+    nim = bool(os.getenv("NIM_API_KEY") or os.getenv("NVIDIA_API_KEY") or os.getenv("NGC_API_KEY"))
+    selected = ("omniroute" if omni else "nim") if provider == "auto" else provider
+    return {"status": "healthy", "inference_provider": selected, "inference_configured": omni if selected == "omniroute" else nim}
