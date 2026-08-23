@@ -200,6 +200,80 @@ def _design_markdown(design_json: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def parse_design_tokens(raw_design: str) -> Dict[str, Any]:
+    """Parse and normalize a designer response into the downstream contract.
+
+    Chat models commonly place valid JSON in a Markdown fence or wrap the
+    design system in a named envelope.  Those are presentation variants, not
+    generation failures, so this boundary normalizes them to canonical
+    ``colors`` and ``typography`` sections before later agents consume them.
+    """
+    cleaned = raw_design.strip()
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, re.IGNORECASE | re.DOTALL)
+    if fenced:
+        cleaned = fenced.group(1)
+    else:
+        first_object = cleaned.find("{")
+        last_object = cleaned.rfind("}")
+        if first_object >= 0 and last_object > first_object:
+            cleaned = cleaned[first_object:last_object + 1]
+
+    parsed = json.loads(cleaned)
+    if not isinstance(parsed, dict):
+        raise ValueError("Designer validation failed: design specification must be a JSON object.")
+
+    for envelope in ("designTokens", "design_tokens", "designSystem", "design_system", "tokens", "theme"):
+        nested = parsed.get(envelope)
+        if isinstance(nested, dict):
+            parsed = nested
+            break
+
+    aliases = {
+        "colors": ("colorPalette", "color_palette", "palette", "colourPalette", "colour_palette"),
+        "typography": ("fonts", "fontStyles", "font_styles", "textStyles", "text_styles"),
+    }
+    for canonical, alternatives in aliases.items():
+        if canonical not in parsed:
+            for alternative in alternatives:
+                if alternative in parsed:
+                    parsed[canonical] = parsed[alternative]
+                    break
+
+    # Some models add an arbitrary single section (for example ``visual``)
+    # around the actual token set.  Descend only when one of the candidate
+    # objects contains recognizable token category names; never guess values.
+    if "colors" not in parsed or "typography" not in parsed:
+        candidate_names = {"colors", "typography", *aliases["colors"], *aliases["typography"]}
+        for value in parsed.values():
+            if not isinstance(value, dict) or not (candidate_names & set(value)):
+                continue
+            merged = dict(value)
+            for canonical, alternatives in aliases.items():
+                if canonical not in merged:
+                    for alternative in alternatives:
+                        if alternative in merged:
+                            merged[canonical] = merged[alternative]
+                            break
+            parsed = merged
+            break
+
+    missing = [key for key in ("colors", "typography") if key not in parsed]
+    if missing:
+        received = ", ".join(sorted(str(key) for key in parsed.keys())[:12]) or "none"
+        raise ValueError(
+            "Designer validation failed: Missing required token categories "
+            f"{', '.join(missing)}. Received top-level keys: {received}."
+        )
+    return parsed
+
+
+def unwrap_generated_code(raw_output: str) -> str:
+    """Remove a single Markdown code fence from a model-generated artifact."""
+    output = raw_output.strip()
+    fenced = re.fullmatch(r"```[^\n]*\n(.*?)\n?```", output, re.DOTALL)
+    return fenced.group(1).strip() if fenced else output
+
+
 # ---------------------------------------------------------------------------
 # EM-4: Structural design-token lint (replaces the "backdrop-blur" string
 # search). A generated frontend must demonstrate, structurally, that the
@@ -302,7 +376,8 @@ class DesignerAgent(BaseAgent):
         "component hierarchy, page layouts, responsive breakpoints, and specific CSS classes to use (like backdrop-blur). "
         "UI REQUIREMENT: You MUST implement a stunning, premium, modern user interface. "
         "Use 2026 state-of-the-art aesthetics (glassmorphism, dynamic micro-animations). "
-        "Output ONLY a valid JSON object representing these design tokens."
+        "Output ONLY a valid JSON object—no Markdown fences or prose—with this exact top-level shape: "
+        '{"colors": {...}, "typography": {...}, "components": {...}, "layouts": {...}, "responsive": {...}}.'
     )
 
     async def run(self, ctx: PipelineContext) -> PipelineContext:
@@ -319,11 +394,10 @@ class DesignerAgent(BaseAgent):
             max_tokens=3000,
         )
         
-        # Structural Validation
+        # Normalize harmless model presentation/schema variants at the
+        # inference boundary before downstream agents consume the artifact.
         try:
-            design_json = json.loads(design.strip("` \n").removeprefix("json"))
-            if "colors" not in design_json or "typography" not in design_json:
-                raise ValueError("Designer validation failed: Missing required token categories.")
+            design_json = parse_design_tokens(design)
         except json.JSONDecodeError:
             design_lower = design.lower()
             if "cannot fulfill" in design_lower or "unable to" in design_lower or "safety" in design_lower or "violate" in design_lower:
@@ -369,6 +443,7 @@ class FrontendAgent(BaseAgent):
             temperature=0.2,
             max_tokens=6000,
         )
+        code = unwrap_generated_code(code)
         
         # EM-4: structural design-token lint (replaces the old single-keyword
         # string-search gate).
@@ -414,6 +489,11 @@ class BackendAgent(BaseAgent):
             temperature=0.2,
             max_tokens=6000,
         )
+        code = unwrap_generated_code(code)
+        try:
+            ast.parse(code)
+        except SyntaxError as exc:
+            raise ValueError(f"Backend validation failed: generated Python is invalid: {exc}") from exc
         ctx.set_artifact("backend/main.py", code)
         ctx.add_message(AgentMessage(
             from_role=self.role,
@@ -450,6 +530,7 @@ class IntegrationAgent(BaseAgent):
             temperature=0.2,
             max_tokens=3000,
         )
+        docker_compose = unwrap_generated_code(docker_compose)
         ctx.set_artifact("docker-compose.yml", docker_compose)
         
         # Generate .env.example
@@ -461,6 +542,7 @@ class IntegrationAgent(BaseAgent):
             temperature=0.2,
             max_tokens=1000,
         )
+        env_example = unwrap_generated_code(env_example)
         ctx.set_artifact(".env.example", env_example)
         
         # Generate frontend Dockerfile
@@ -472,6 +554,7 @@ class IntegrationAgent(BaseAgent):
             temperature=0.2,
             max_tokens=1500,
         )
+        frontend_dockerfile = unwrap_generated_code(frontend_dockerfile)
         ctx.set_artifact("frontend/Dockerfile", frontend_dockerfile)
         
         # Generate backend Dockerfile
@@ -483,6 +566,7 @@ class IntegrationAgent(BaseAgent):
             temperature=0.2,
             max_tokens=1500,
         )
+        backend_dockerfile = unwrap_generated_code(backend_dockerfile)
         ctx.set_artifact("backend/Dockerfile", backend_dockerfile)
         
         ctx.add_message(AgentMessage(
@@ -514,6 +598,11 @@ class QAAgent(BaseAgent):
             temperature=0.2,
             max_tokens=3000,
         )
+        tests = unwrap_generated_code(tests)
+        try:
+            ast.parse(tests)
+        except SyntaxError as exc:
+            raise ValueError(f"QA validation failed: generated tests are invalid Python: {exc}") from exc
         ctx.set_artifact("tests/test_backend.py", tests)
         
         # Execution Loop (The Moat)
