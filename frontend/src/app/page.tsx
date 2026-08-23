@@ -2,350 +2,99 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Sparkles, Zap, Github, Database, Layers, Terminal, CheckCircle, Loader2 } from 'lucide-react';
+import { ArrowRight, Blocks, Bot, Check, ChevronRight, Code2, Github, Layers3, Loader2, Play, ShieldCheck, Sparkles, WandSparkles, Zap } from 'lucide-react';
 
-const features = [
-  { icon: Sparkles, title: 'Vibe Coding', desc: 'Describe your app in plain English - no code required' },
-  { icon: Layers, title: 'Full-Stack Generation', desc: 'React frontend, FastAPI backend, PostgreSQL database' },
-  { icon: Terminal, title: 'Live Preview', desc: 'See your app running as agents build it in real-time' },
-  { icon: Github, title: 'GitHub Sync', desc: 'Export code, sync to GitHub with meaningful commits' },
-  { icon: Database, title: 'Persistent Projects', desc: 'Projects, conversations, and artifacts survive restarts' },
-  { icon: Zap, title: 'NVIDIA NIM Exclusive', desc: 'All inference powered by NVIDIA NIM endpoints' },
+const agents = [
+  { name: 'Planner', color: 'bg-violet-400', state: 'Architecture ready' },
+  { name: 'Designer', color: 'bg-fuchsia-400', state: 'Design system crafted' },
+  { name: 'Frontend', color: 'bg-cyan-400', state: 'Building interface' },
+  { name: 'Backend', color: 'bg-emerald-400', state: 'API connected' },
 ];
 
-const steps = [
-  { num: '01', title: 'Describe', desc: 'Type what you want to build in natural language' },
-  { num: '02', title: 'Watch', desc: 'Multi-agent team plans, codes, tests, and deploys' },
-  { num: '03', title: 'Preview', desc: 'Live preview updates as the app is built' },
-  { num: '04', title: 'Iterate', desc: 'Chat to refine: "add dark mode", "fix login bug"' },
-  { num: '05', title: 'Export', desc: 'Download code or deploy with one click' },
+const capabilities = [
+  { icon: WandSparkles, title: 'Idea to interface', text: 'Describe the product. Emergent supplies the production baseline automatically.' },
+  { icon: Blocks, title: 'A real full stack', text: 'Frontend, API, data model, validation, tests, and runnable artifacts move together.' },
+  { icon: ShieldCheck, title: 'Self-correcting loops', text: 'Agents diagnose failures, repair the artifact, and test again before calling it done.' },
 ];
 
 export default function HomePage() {
   const router = useRouter();
   const [prompt, setPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const launch = (event: React.FormEvent) => {
+    event.preventDefault();
     if (!prompt.trim()) return;
     setIsLoading(true);
-    // Navigate to the actual workspace
     router.push('/workspace');
   };
 
   return (
-    <div className="min-h-screen bg-mesh-dark relative overflow-hidden">
-      {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-dark-950/80 backdrop-blur-md border-b border-dark-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-primary-700 rounded-lg flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-xl font-bold text-white">Emergent</span>
-            </div>
-            <div className="hidden md:flex items-center gap-8">
-              <a href="#features" className="text-dark-300 hover:text-white transition-colors">Features</a>
-              <a href="#how-it-works" className="text-dark-300 hover:text-white transition-colors">How It Works</a>
-              <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="text-dark-300 hover:text-white transition-colors">GitHub</a>
-            </div>
-            <div className="flex items-center gap-4">
-              <button className="hidden sm:block px-4 py-2 text-sm font-medium text-dark-300 hover:text-white transition-colors">
-                Sign In
-              </button>
-              <button onClick={() => router.push('/workspace')} className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors">
-                Start Building
-              </button>
-            </div>
+    <main className="min-h-screen overflow-hidden bg-[#05060a] text-white selection:bg-cyan-400/30">
+      <div className="pointer-events-none fixed inset-0 aurora-canvas" />
+      <div className="pointer-events-none fixed inset-0 bg-grid-fade opacity-50" />
+
+      <nav className="fixed inset-x-0 top-0 z-50 px-4 pt-4">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between rounded-2xl border border-white/[0.08] bg-[#0a0c13]/70 px-4 shadow-2xl shadow-black/30 backdrop-blur-2xl sm:px-6">
+          <button onClick={() => router.push('/')} className="group flex items-center gap-3" aria-label="Emergent home">
+            <span className="relative grid h-9 w-9 place-items-center overflow-hidden rounded-xl bg-gradient-to-br from-cyan-300 via-blue-500 to-violet-600 shadow-[0_0_28px_rgba(34,211,238,.28)]"><Sparkles className="h-5 w-5" /></span>
+            <span className="text-lg font-semibold tracking-[-0.03em]">Emergent<span className="text-cyan-300">SH</span></span>
+          </button>
+          <div className="hidden items-center gap-8 text-sm text-slate-400 md:flex">
+            <a href="#capabilities" className="transition-colors hover:text-white">Capabilities</a>
+            <a href="#workflow" className="transition-colors hover:text-white">How it works</a>
+            <a href="https://github.com" target="_blank" rel="noreferrer" className="flex items-center gap-2 transition-colors hover:text-white"><Github className="h-4 w-4" /> GitHub</a>
           </div>
+          <button onClick={() => router.push('/workspace')} className="group flex items-center gap-2 rounded-xl border border-cyan-300/20 bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 shadow-[0_0_24px_rgba(34,211,238,.2)] transition hover:-translate-y-0.5 hover:bg-white">Open studio <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" /></button>
         </div>
       </nav>
 
+      <section className="relative mx-auto grid min-h-screen max-w-7xl items-center gap-16 px-6 pb-20 pt-36 lg:grid-cols-[.92fr_1.08fr] lg:px-8">
+        <div className="relative z-10">
+          <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/[0.06] px-3 py-1.5 text-xs font-medium text-cyan-100 backdrop-blur-xl"><span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300 opacity-50" /><span className="relative h-2 w-2 rounded-full bg-emerald-300" /></span>NVIDIA NIM live · multi-agent build system</div>
+          <h1 className="max-w-3xl text-5xl font-semibold leading-[.98] tracking-[-0.055em] text-balance sm:text-6xl xl:text-[5.35rem]">Your idea deserves a<span className="block bg-gradient-to-r from-white via-cyan-200 to-violet-300 bg-clip-text text-transparent">world-class build.</span></h1>
+          <p className="mt-7 max-w-xl text-lg leading-8 text-slate-400 sm:text-xl">Tell Emergent what you want to create. A coordinated AI team plans, designs, codes, tests, repairs, and previews the product with you.</p>
 
-      {/* Hero Section */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[800px] bg-primary-500/20 rounded-full blur-[120px] animate-blob-spin mix-blend-screen pointer-events-none -z-10" />
-      <section className="relative pt-32 pb-20 px-4 sm:px-6 lg:px-8">
-
-        <div className="max-w-7xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary-500/10 border border-primary-500/20 text-primary-400 text-sm mb-8">
-            <span className="w-2 h-2 bg-primary-500 rounded-full animate-pulse"></span>
-            Powered by NVIDIA NIM • Exclusive Inference Engine
-          </div>
-          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-white mb-6 leading-tight animate-reveal-up drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
-            Describe your idea{' '}
-            <span className="bg-gradient-to-r from-primary-400 via-primary-500 to-primary-600 bg-clip-text text-transparent">
-              → Build websites & apps with AI
-            </span>
-          </h1>
-          <p className="text-xl sm:text-2xl text-dark-300 mb-10 max-w-3xl mx-auto leading-relaxed">
-            The world&apos;s first truly agentic vibe coding platform. A multi-agent team powered
-            exclusively by NVIDIA NIM plans, codes, tests, and deploys production-ready full-stack applications.
-          </p>
-          
-          {/* Prompt Input */}
-          <form onSubmit={handleSubmit} className="max-w-3xl mx-auto mb-16">
-            <div className="relative">
-              <div className="absolute inset-0 bg-gradient-to-r from-primary-500/10 to-primary-600/10 rounded-2xl blur-2xl -z-10"></div>
-              <div className="relative bg-dark-950/80 backdrop-blur-md border border-dark-700 rounded-2xl p-2">
-                <textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="e.g. Build a SaaS task manager with user auth, Stripe billing, and a dashboard"
-                  className="w-full bg-transparent text-white placeholder-dark-500 text-lg py-6 px-6 resize-none focus:outline-none min-h-[100px]"
-                  rows={3}
-                  disabled={isLoading}
-                />
+          <form onSubmit={launch} className="mt-10 max-w-2xl">
+            <div className="prompt-shell group relative rounded-[1.6rem] p-px">
+              <div className="relative rounded-[calc(1.6rem-1px)] bg-[#090b12]/90 p-3 backdrop-blur-2xl">
+                <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} disabled={isLoading} placeholder="Build a beautiful project hub for a creative studio…" className="min-h-28 w-full resize-none bg-transparent px-4 py-3 text-lg leading-7 text-white outline-none placeholder:text-slate-600" />
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] px-2 pt-3">
+                  <div className="flex items-center gap-2 text-xs text-slate-500"><Bot className="h-4 w-4 text-violet-300" /> Production defaults included</div>
+                  <button disabled={isLoading || !prompt.trim()} className="group flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-300 to-blue-400 px-5 py-2.5 text-sm font-semibold text-slate-950 shadow-[0_0_26px_rgba(34,211,238,.2)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4 fill-current" />}Build it <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" /></button>
+                </div>
               </div>
             </div>
-            <div className="mt-4 flex justify-center">
-              <button
-                type="submit"
-                disabled={isLoading || !prompt.trim()}
-                className="group w-full sm:w-auto px-8 py-4 text-lg font-medium text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 rounded-xl transition-all duration-500 shadow-glow-primary hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-6 h-6 animate-spin" />
-                    Building your app...
-                  </>
-                ) : (
-                  <>
-                    <span>Start Building</span>
-                    <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                  </>
-                )}
-              </button>
-            </div>
-            <p className="text-center text-dark-500 mt-4 text-sm">
-              No credit card required • Powered by NVIDIA NIM • Free tier available
-            </p>
           </form>
-
-          {/* Example Prompts */}
-          <div className="flex flex-wrap justify-center gap-3 mb-16">
-            {[
-              'SaaS task manager with auth & billing',
-              'E-commerce store with cart & payments',
-              'Real-time chat app with rooms',
-              'Project management with kanban board',
-            ].map((example) => (
-              <button
-                key={example}
-                onClick={() => setPrompt(example)}
-                className="px-4 py-2 text-sm text-dark-300 bg-dark-800/50 border border-dark-700 hover:border-primary-500/50 hover:text-white rounded-lg transition-all"
-              >
-                {example}
-              </button>
-            ))}
-          </div>
-
-          {/* Trust Indicators */}
-          <div className="flex items-center justify-center gap-8 text-dark-500 text-sm">
-            <div className="flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-green-500" />
-              <span>NVIDIA NIM Exclusive</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-green-500" />
-              <span>Open Source</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-green-500" />
-              <span>Production Ready</span>
-            </div>
-          </div>
+          <div className="mt-5 flex flex-wrap gap-2">{['Creative agency hub', 'AI research dashboard', 'Premium client portal'].map((idea) => <button key={idea} onClick={() => setPrompt(idea)} className="rounded-full border border-white/[0.07] bg-white/[0.035] px-3 py-1.5 text-xs text-slate-400 transition hover:border-cyan-300/20 hover:bg-cyan-300/[0.05] hover:text-cyan-100">{idea}</button>)}</div>
         </div>
-      </section>
 
-      {/* Features Section */}
-      <section id="features" className="py-20 px-4 sm:px-6 lg:px-8 bg-dark-950/50">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-white mb-4">Why Emergent?</h2>
-            <p className="text-xl text-dark-400 max-w-2xl mx-auto">
-              Unlike no-code tools, Emergent generates real, executable code you own.
-              Every component is production-ready from day one.
-            </p>
-          </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {features.map((feature, index) => (
-              <div
-                key={feature.title}
-                className="group p-6 bg-dark-900/40 backdrop-blur-xl border border-white/5 rounded-2xl hover:border-primary-500/50 hover:shadow-glow-primary transition-all duration-500 hover:-translate-y-2"
-              >
-                <div className="w-12 h-12 bg-primary-500/10 rounded-xl flex items-center justify-center mb-4 group-hover:bg-primary-500/20 transition-colors">
-                  <feature.icon className="w-6 h-6 text-primary-400" />
+        <div className="relative hidden min-h-[610px] lg:block">
+          <div className="absolute inset-0 rounded-full bg-blue-500/10 blur-[100px]" />
+          <div className="absolute left-5 top-12 w-[94%] rotate-[1.5deg] rounded-[2rem] border border-white/[0.08] bg-white/[0.025] p-3 shadow-[0_40px_120px_rgba(0,0,0,.55)] backdrop-blur-2xl">
+            <div className="overflow-hidden rounded-[1.45rem] border border-white/[0.08] bg-[#080a10]/95">
+              <div className="flex h-14 items-center justify-between border-b border-white/[0.07] px-5"><div className="flex items-center gap-3"><div className="flex gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-red-400/70" /><i className="h-2.5 w-2.5 rounded-full bg-amber-300/70" /><i className="h-2.5 w-2.5 rounded-full bg-emerald-300/70" /></div><span className="text-xs text-slate-500">Luma · Project workspace</span></div><span className="flex items-center gap-2 rounded-full bg-emerald-300/[0.08] px-2.5 py-1 text-[10px] text-emerald-200"><span className="h-1.5 w-1.5 rounded-full bg-emerald-300" /> Live preview</span></div>
+              <div className="grid h-[470px] grid-cols-[150px_1fr]">
+                <div className="border-r border-white/[0.06] p-4"><div className="mb-7 flex items-center gap-2 text-xs font-medium"><span className="grid h-7 w-7 place-items-center rounded-lg bg-violet-400/15 text-violet-200"><Layers3 className="h-3.5 w-3.5" /></span> Agent flow</div><div className="space-y-5">{agents.map((agent, index) => <div key={agent.name} className="relative flex gap-2.5"><span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${agent.color} ${index === 2 ? 'animate-pulse' : ''}`} />{index < agents.length - 1 && <span className="absolute left-[3px] top-4 h-6 w-px bg-white/10" />}<div><p className="text-[11px] text-slate-200">{agent.name}</p><p className="mt-0.5 text-[8px] leading-3 text-slate-600">{agent.state}</p></div></div>)}</div></div>
+                <div className="relative overflow-hidden bg-gradient-to-br from-[#0c1019] to-[#07090e] p-5">
+                  <div className="mb-5 flex items-center justify-between"><div><p className="text-[10px] uppercase tracking-[.2em] text-cyan-300/70">Live product</p><h3 className="mt-1 text-xl font-medium tracking-tight">Creative command center</h3></div><button className="grid h-8 w-8 place-items-center rounded-full border border-white/10 bg-white/5"><Play className="h-3 w-3 fill-white" /></button></div>
+                  <div className="grid grid-cols-3 gap-3">{['24 active', '87% velocity', '6 shipping'].map((v, i) => <div key={v} className="rounded-xl border border-white/[0.07] bg-white/[0.035] p-3"><p className={`text-lg font-medium ${i === 0 ? 'text-cyan-200' : i === 1 ? 'text-violet-200' : 'text-emerald-200'}`}>{v.split(' ')[0]}</p><p className="mt-1 text-[9px] text-slate-500">{v.substring(v.indexOf(' ') + 1)}</p></div>)}</div>
+                  <div className="mt-4 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4"><div className="mb-4 flex items-center justify-between"><p className="text-xs text-slate-300">This week</p><p className="text-[9px] text-emerald-300">+18.4%</p></div><div className="flex h-28 items-end gap-2">{[36,54,42,75,62,88,72,96,78,105,92,116].map((h, i) => <span key={i} className="flex-1 rounded-t bg-gradient-to-t from-blue-600/40 to-cyan-300/80" style={{height:h}} />)}</div></div>
+                  <div className="mt-4 grid grid-cols-2 gap-3"><div className="rounded-xl border border-violet-300/10 bg-violet-300/[0.035] p-3 text-[10px] text-slate-400">Next milestone<span className="mt-1 block text-sm text-white">Client beta</span></div><div className="rounded-xl border border-cyan-300/10 bg-cyan-300/[0.035] p-3 text-[10px] text-slate-400">Agent confidence<span className="mt-1 block text-sm text-white">98.6%</span></div></div>
                 </div>
-                <h3 className="text-xl font-semibold text-white mb-2">{feature.title}</h3>
-                <p className="text-dark-400">{feature.desc}</p>
               </div>
-            ))}
+            </div>
           </div>
+          <div className="absolute -right-2 bottom-16 rounded-2xl border border-white/10 bg-[#0d1018]/85 p-4 shadow-2xl backdrop-blur-2xl animate-float"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-300/10 text-emerald-300"><Check className="h-4 w-4" /></span><div><p className="text-xs font-medium">QA passed</p><p className="mt-0.5 text-[10px] text-slate-500">42 checks · zero regressions</p></div></div></div>
         </div>
       </section>
 
-      {/* How It Works Section */}
-      <section id="how-it-works" className="py-20 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-white mb-4">How It Works</h2>
-            <p className="text-xl text-dark-400 max-w-2xl mx-auto">
-              From idea to deployed app in minutes, not months.
-            </p>
-          </div>
-          <div className="grid md:grid-cols-5 gap-4">
-            {steps.map((step, index) => (
-              <div key={step.num} className="relative">
-                <div className="w-14 h-14 bg-gradient-to-br from-primary-500 to-primary-700 rounded-2xl flex items-center justify-center text-2xl font-bold text-white mb-4">
-                  {step.num}
-                </div>
-                <h3 className="text-lg font-semibold text-white mb-1">{step.title}</h3>
-                <p className="text-dark-400 text-sm">{step.desc}</p>
-                {index < steps.length - 1 && (
-                  <div className="absolute top-7 right-[-12%] hidden md:block w-[24%] h-0.5 bg-gradient-to-r from-primary-500 to-transparent" />
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
+      <section id="capabilities" className="relative mx-auto max-w-7xl px-6 py-24 lg:px-8">
+        <div className="mb-12 max-w-2xl"><p className="text-xs font-semibold uppercase tracking-[.24em] text-cyan-300">Built into every project</p><h2 className="mt-4 text-4xl font-semibold tracking-[-.04em] sm:text-5xl">You bring the vision.<br/><span className="text-slate-500">The system brings the rigor.</span></h2></div>
+        <div className="grid gap-4 md:grid-cols-3">{capabilities.map(({icon: Icon,title,text}, index) => <article key={title} className="glass-card group rounded-3xl p-7 transition duration-500 hover:-translate-y-1"><div className="mb-8 flex items-center justify-between"><span className={`grid h-12 w-12 place-items-center rounded-2xl ${index===0?'bg-violet-300/10 text-violet-200':index===1?'bg-cyan-300/10 text-cyan-200':'bg-emerald-300/10 text-emerald-200'}`}><Icon className="h-5 w-5" /></span><span className="text-xs text-slate-700">0{index+1}</span></div><h3 className="text-xl font-medium tracking-tight">{title}</h3><p className="mt-3 leading-7 text-slate-500">{text}</p><div className="mt-7 flex items-center gap-1 text-xs text-slate-400 transition group-hover:text-cyan-200">Included by default <ChevronRight className="h-3.5 w-3.5" /></div></article>)}</div>
       </section>
 
-      {/* Agent Team Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-dark-950/50">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-white mb-4">Your AI Agent Team</h2>
-            <p className="text-xl text-dark-400 max-w-2xl mx-auto">
-              Specialized agents collaborate like a real engineering team.
-            </p>
-          </div>
-          <div className="grid md:grid-cols-4 gap-6">
-            {[
-              { name: 'Orchestrator', role: 'Plans architecture & task breakdown', color: 'from-purple-500 to-purple-700' },
-              { name: 'Frontend', role: 'React/Next.js components & UI', color: 'from-blue-500 to-blue-700' },
-              { name: 'Backend', role: 'FastAPI/Node APIs & business logic', color: 'from-green-500 to-green-700' },
-              { name: 'Database', role: 'Schema, migrations & queries', color: 'from-amber-500 to-amber-700' },
-              { name: 'Tester', role: 'Runs tests, detects & fixes failures', color: 'from-red-500 to-red-700' },
-              { name: 'Deployer', role: 'Live preview & deployable artifacts', color: 'from-cyan-500 to-cyan-700' },
-            ].map((agent, index) => (
-              <div
-                key={agent.name}
-                className="p-6 bg-dark-900/30 backdrop-blur-lg border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] rounded-2xl hover:border-primary-500/50 hover:shadow-glow-primary transition-all duration-500 transform hover:scale-[1.03]"
-              >
-                <div className={`w-12 h-12 bg-gradient-to-br ${agent.color} rounded-xl flex items-center justify-center mb-4`}>
-                  <Terminal className="w-6 h-6 text-white" />
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-1">{agent.name}</h3>
-                <p className="text-dark-400">{agent.role}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-3xl mx-auto text-center">
-          <div className="relative">
-            <div className="absolute inset-0 bg-gradient-to-r from-primary-500/10 to-primary-600/10 rounded-3xl blur-2xl -z-10"></div>
-            <div className="relative bg-dark-950/80 backdrop-blur-md border border-dark-700 rounded-3xl p-10 md:p-16">
-              <h2 className="text-4xl font-bold text-white mb-4">
-                Ready to build your app?
-              </h2>
-              <p className="text-xl text-dark-400 mb-8">
-                Join developers building production apps with AI agents.
-              </p>
-              <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-4 justify-center max-w-md mx-auto">
-                <input
-                  type="text"
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="What do you want to build?"
-                  className="flex-1 bg-dark-900 border border-dark-700 text-white placeholder-dark-500 px-6 py-4 rounded-xl focus:outline-none focus:border-primary-500"
-                  disabled={isLoading}
-                />
-                <button
-                  type="submit"
-                  disabled={isLoading || !prompt.trim()}
-                  className="px-8 py-4 text-lg font-medium text-white bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 rounded-xl transition-all duration-500 shadow-glow-primary hover:scale-105 disabled:opacity-50 flex items-center gap-2"
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="w-6 h-6 animate-spin" />
-                      Building...
-                    </>
-                  ) : (
-                    <>
-                      Start Building
-                      <ArrowRight className="w-5 h-5" />
-                    </>
-                  )}
-                </button>
-              </form>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="py-12 px-4 sm:px-6 lg:px-8 border-t border-dark-800">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid md:grid-cols-4 gap-8 mb-8">
-            <div>
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-primary-700 rounded-lg flex items-center justify-center">
-                  <Sparkles className="w-5 h-5 text-white" />
-                </div>
-                <span className="text-xl font-bold text-white">Emergent</span>
-              </div>
-              <p className="text-dark-400 text-sm">
-                Build production-ready full-stack applications with AI agents powered by NVIDIA NIM.
-              </p>
-            </div>
-            <div>
-              <h4 className="font-semibold text-white mb-4">Product</h4>
-              <ul className="space-y-2 text-dark-400 text-sm">
-                <li><a href="#" className="hover:text-white transition-colors">Features</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Pricing</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Documentation</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">API Reference</a></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold text-white mb-4">Company</h4>
-              <ul className="space-y-2 text-dark-400 text-sm">
-                <li><a href="#" className="hover:text-white transition-colors">About</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Blog</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Careers</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Contact</a></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold text-white mb-4">Legal</h4>
-              <ul className="space-y-2 text-dark-400 text-sm">
-                <li><a href="#" className="hover:text-white transition-colors">Privacy</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Terms</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Security</a></li>
-              </ul>
-            </div>
-          </div>
-          <div className="pt-8 border-t border-dark-800 flex flex-col md:flex-row justify-between items-center gap-4">
-            <p className="text-dark-500 text-sm">
-              © 2024 Emergent. Built with NVIDIA NIM.
-            </p>
-            <div className="flex items-center gap-4">
-              <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="text-dark-400 hover:text-white transition-colors">
-                <Github className="w-5 h-5" />
-              </a>
-              <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="text-dark-400 hover:text-white transition-colors">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M23 3a10.9 10.9 0 0 1-3.14 1.53 4.48 4.48 0 0 0-7.86 3v1A10.66 10.66 0 0 1 3 4s-4 9 5 13a11.64 11.64 0 0 1-7 2c9 5 20 0 20-11.5a4.5 4.5 0 0 0-.08-.83A7.72 7.72 0 0 0 23 3z"></path></svg>
-              </a>
-            </div>
-          </div>
-        </div>
-      </footer>
-    </div>
+      <section id="workflow" className="relative mx-auto max-w-7xl px-6 pb-28 pt-14 lg:px-8"><div className="overflow-hidden rounded-[2.4rem] border border-white/[0.08] bg-gradient-to-br from-white/[0.055] to-white/[0.015] p-8 backdrop-blur-2xl sm:p-12"><div className="grid gap-12 lg:grid-cols-[.8fr_1.2fr] lg:items-center"><div><span className="inline-flex items-center gap-2 rounded-full bg-violet-300/10 px-3 py-1 text-xs text-violet-200"><Code2 className="h-3.5 w-3.5" /> Self-healing delivery</span><h2 className="mt-5 text-4xl font-semibold tracking-[-.04em]">Build. Test. Repair.<br/>Ship with confidence.</h2><p className="mt-5 max-w-lg leading-7 text-slate-400">Each specialist hands structured artifacts to the next. When validation fails, the failing code and exact error return to the responsible agent for another pass.</p></div><div className="grid gap-3 sm:grid-cols-2">{['Plan the product baseline','Craft the visual system','Generate the full stack','Validate and self-correct'].map((step,i)=><div key={step} className="flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-black/20 p-4"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/[0.05] text-xs text-cyan-200">{i+1}</span><span className="text-sm text-slate-300">{step}</span></div>)}</div></div></div></section>
+      <footer className="relative border-t border-white/[0.06] px-6 py-8"><div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 text-xs text-slate-600 sm:flex-row"><span>EmergentSH · Intelligent software delivery</span><span>Powered by NVIDIA NIM</span></div></footer>
+    </main>
   );
 }

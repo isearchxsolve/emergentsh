@@ -419,8 +419,10 @@ export default function WorkspacePage() {
   // -------------------------------------------------------------------------
   if (authState === 'checking') {
     return (
-      <div className="h-screen flex items-center justify-center bg-dark-950">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
+      <div className="workspace-aurora h-screen flex items-center justify-center">
+        <div className="grid h-16 w-16 place-items-center rounded-2xl border border-cyan-300/15 bg-cyan-300/[0.05] shadow-[0_0_40px_rgba(34,211,238,.12)] backdrop-blur-2xl">
+          <Loader2 className="w-7 h-7 animate-spin text-cyan-300" />
+        </div>
       </div>
     );
   }
@@ -430,17 +432,18 @@ export default function WorkspacePage() {
   // -------------------------------------------------------------------------
   if (authState === 'signed_out') {
     return (
-      <div className="h-screen flex items-center justify-center bg-dark-950 relative overflow-hidden">
-        <div className="absolute -top-32 -left-32 w-96 h-96 bg-primary-600/20 rounded-full blur-3xl" />
-        <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-purple-600/20 rounded-full blur-3xl" />
-        <div className="relative w-full max-w-md p-8 rounded-2xl glass-panel glass-panel-hover shadow-2xl animate-reveal-up">
+      <div className="workspace-aurora h-screen flex items-center justify-center relative overflow-hidden px-5">
+        <div className="absolute inset-0 bg-grid-fade opacity-40" />
+        <div className="absolute -top-32 -left-32 w-[30rem] h-[30rem] bg-cyan-400/10 rounded-full blur-[110px]" />
+        <div className="absolute -bottom-32 -right-32 w-[34rem] h-[34rem] bg-violet-600/15 rounded-full blur-[120px]" />
+        <div className="relative w-full max-w-md p-8 rounded-[1.8rem] border border-white/[0.09] bg-[#0a0c14]/70 shadow-[0_40px_100px_rgba(0,0,0,.45)] backdrop-blur-2xl animate-reveal-up">
           <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 rounded-xl bg-primary-500/10 border border-primary-500/30">
-              <Zap className="w-6 h-6 text-primary-400" />
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-300 to-violet-500 shadow-[0_0_26px_rgba(34,211,238,.2)]">
+              <Zap className="w-5 h-5 text-slate-950 fill-current" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-white">Emergent Workspace</h1>
-              <p className="text-xs text-dark-400">Sign in to build with the agent team</p>
+              <h1 className="text-xl font-semibold tracking-[-.03em] text-white">Emergent<span className="text-cyan-300">SH</span> Studio</h1>
+              <p className="text-xs text-slate-500">Your multi-agent software team</p>
             </div>
           </div>
           <form onSubmit={handleSignIn} className="space-y-4">
@@ -449,7 +452,7 @@ export default function WorkspacePage() {
               onChange={(e) => setAuthUsername(e.target.value)}
               placeholder="Username"
               autoComplete="username"
-              className="w-full bg-dark-800 border border-dark-700 text-white placeholder-dark-500 px-4 py-3 rounded-xl focus:outline-none focus:border-primary-500"
+              className="w-full bg-white/[0.035] border border-white/[0.08] text-white placeholder-slate-600 px-4 py-3.5 rounded-xl focus:outline-none focus:border-cyan-300/40 focus:bg-cyan-300/[0.025] transition"
             />
             <input
               type="password"
@@ -457,7 +460,7 @@ export default function WorkspacePage() {
               onChange={(e) => setAuthPassword(e.target.value)}
               placeholder="Password"
               autoComplete="current-password"
-              className="w-full bg-dark-800 border border-dark-700 text-white placeholder-dark-500 px-4 py-3 rounded-xl focus:outline-none focus:border-primary-500"
+              className="w-full bg-white/[0.035] border border-white/[0.08] text-white placeholder-slate-600 px-4 py-3.5 rounded-xl focus:outline-none focus:border-cyan-300/40 focus:bg-cyan-300/[0.025] transition"
             />
             {authError && (
               <p className="text-sm text-red-400 flex items-center gap-2">
@@ -467,7 +470,7 @@ export default function WorkspacePage() {
             <button
               type="submit"
               disabled={authBusy || !authUsername.trim() || !authPassword}
-              className="w-full py-3 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl text-white font-medium transition-colors flex items-center justify-center gap-2"
+              className="w-full py-3.5 bg-gradient-to-r from-cyan-300 to-blue-400 hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-slate-950 font-semibold transition flex items-center justify-center gap-2 shadow-[0_0_26px_rgba(34,211,238,.16)]"
             >
               {authBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4 rotate-180" />}
               Sign In
@@ -476,7 +479,7 @@ export default function WorkspacePage() {
               type="button"
               onClick={handleRegister}
               disabled={authBusy || !authUsername.trim() || !authPassword}
-              className="w-full py-3 bg-dark-800 hover:bg-dark-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl text-dark-200 font-medium transition-colors border border-dark-700"
+              className="w-full py-3.5 bg-white/[0.035] hover:bg-white/[0.065] disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-slate-300 font-medium transition border border-white/[0.08]"
             >
               Create account
             </button>
@@ -490,30 +493,32 @@ export default function WorkspacePage() {
   // Signed in — main workspace
   // -------------------------------------------------------------------------
   return (
-    <div className="h-screen flex bg-dark-950 overflow-hidden">
+    <div className="workspace-aurora h-screen flex overflow-hidden text-slate-100">
       {/* Left Sidebar - Agent Activity */}
       {sidebarOpen && (
-        <aside className="w-80 bg-dark-900/50 backdrop-blur-md border-r border-dark-800 flex-col hidden lg:flex">
-          <div className="p-4 border-b border-dark-800">
-            <h3 className="font-semibold text-white flex items-center gap-2">
-              <Zap className="w-5 h-5 text-primary-500" />
-              Agent Activity
+        <aside className="w-[18.5rem] m-3 mr-0 rounded-[1.4rem] border border-white/[0.07] bg-[#090b12]/65 shadow-2xl shadow-black/20 backdrop-blur-2xl flex-col hidden lg:flex overflow-hidden">
+          <div className="p-5 border-b border-white/[0.06]">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[.22em] text-cyan-300/70">Execution graph</p>
+            <h3 className="font-semibold tracking-[-.02em] text-white flex items-center gap-2">
+              <Zap className="w-4 h-4 text-cyan-300 fill-current" />
+              Agent flow
             </h3>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
             {activities.length === 0 ? (
-              <div className="text-center text-dark-500 py-8">
-                <MessageSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p className="text-sm">Start a conversation to see agent activity</p>
+              <div className="text-center text-slate-600 py-12 px-5">
+                <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-2xl border border-violet-300/10 bg-violet-300/[0.04]"><MessageSquare className="w-5 h-5 text-violet-300/70" /></div>
+                <p className="text-sm text-slate-400">Your agent team is ready</p>
+                <p className="mt-2 text-xs leading-5">Describe a product to watch each specialist come online.</p>
               </div>
             ) : (
               activities.map((activity) => (
-                <div key={activity.id} className="p-3 glass-panel glass-panel-hover rounded-xl">
+                <div key={activity.id} className="relative p-3.5 rounded-xl border border-white/[0.07] bg-white/[0.025] transition hover:bg-white/[0.045]">
                   <div className="flex items-center gap-2 mb-1">
                     <div className={`w-2 h-2 rounded-full ${
                       activity.status === 'complete' ? 'bg-green-500' :
                       activity.status === 'error' ? 'bg-red-500' :
-                      'bg-primary-500 animate-pulse'
+                      'bg-cyan-300 animate-pulse shadow-[0_0_12px_rgba(34,211,238,.7)]'
                     }`} />
                     <span className="text-xs font-medium text-white capitalize">{activity.agent}</span>
                     <span className="text-xs text-dark-500">{activity.status}</span>
@@ -524,12 +529,12 @@ export default function WorkspacePage() {
               ))
             )}
           </div>
-          <div className="p-4 border-t border-dark-800">
-            <div className="flex items-center gap-3 p-3 glass-panel rounded-xl">
+          <div className="p-4 border-t border-white/[0.06]">
+            <div className="flex items-center gap-3 p-3.5 rounded-xl border border-white/[0.07] bg-gradient-to-r from-white/[0.04] to-transparent">
               <div className={`w-3 h-3 rounded-full ${
                 currentPhase === 'complete' ? 'bg-green-500' :
                 currentPhase === 'error' ? 'bg-red-500' :
-                'bg-primary-500 animate-pulse'
+                'bg-cyan-300 animate-pulse shadow-[0_0_12px_rgba(34,211,238,.7)]'
               }`} />
               <div>
                 <p className="text-xs text-dark-500">Current Phase</p>
@@ -541,21 +546,21 @@ export default function WorkspacePage() {
       )}
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 m-3 gap-3">
         {/* Chat Header */}
-        <header className="h-16 bg-dark-900/50 backdrop-blur-md border-b border-dark-800 flex items-center justify-between px-4 z-10">
+        <header className="h-16 rounded-[1.25rem] border border-white/[0.07] bg-[#090b12]/65 shadow-xl shadow-black/10 backdrop-blur-2xl flex items-center justify-between px-5 z-10">
           <div className="flex items-center gap-3">
-            <h2 className="font-semibold text-white">Project Workspace</h2>
-            <span className="px-2 py-1 text-xs bg-primary-500/10 text-primary-400 rounded-full">v1.0.0</span>
+            <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-cyan-300 to-violet-500 text-slate-950 shadow-[0_0_20px_rgba(34,211,238,.16)]"><Zap className="h-4 w-4 fill-current" /></span>
+            <div><h2 className="font-semibold tracking-[-.025em] text-white">Project Studio</h2><p className="text-[10px] text-slate-600">EmergentSH · live workspace</p></div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 px-3 py-1 bg-dark-800 rounded-lg text-sm text-dark-300 font-medium mr-2 border border-dark-700">
-              <Zap className="w-4 h-4 text-amber-500" />
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-300/[0.06] rounded-xl text-xs text-amber-100/80 font-medium mr-1 border border-amber-300/10">
+              <Zap className="w-3.5 h-3.5 text-amber-300 fill-current" />
               <span>{credits !== null ? credits : '...'} Credits</span>
             </div>
             <button
               onClick={() => setShowSettings(s => !s)}
-              className={`p-2 rounded-lg transition-colors ${showSettings ? 'text-white bg-dark-800' : 'text-dark-400 hover:text-white hover:bg-dark-800'}`}
+              className={`p-2 rounded-xl border transition ${showSettings ? 'text-white bg-white/[0.08] border-white/10' : 'text-slate-500 border-transparent hover:text-white hover:bg-white/[0.05]'}`}
               title="Settings"
               aria-pressed={showSettings}
             >
@@ -563,7 +568,7 @@ export default function WorkspacePage() {
             </button>
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 text-dark-400 hover:text-white hover:bg-dark-800 rounded-lg transition-colors"
+              className="p-2 text-slate-500 hover:text-white hover:bg-white/[0.05] rounded-xl transition"
               title="Toggle Sidebar"
               aria-pressed={sidebarOpen}
             >
@@ -574,7 +579,7 @@ export default function WorkspacePage() {
 
         {/* EM-6: Settings panel (previously a dead button) */}
         {showSettings && (
-          <div className="px-4 py-3 glass-panel rounded-b-xl mx-4 mt-2 flex items-center justify-between gap-4 z-10">
+          <div className="px-4 py-3 border border-white/[0.07] bg-[#0b0e17]/85 rounded-2xl flex items-center justify-between gap-4 z-10 backdrop-blur-2xl">
             <div className="flex items-center gap-4 text-sm text-dark-300">
               <span className="flex items-center gap-2">
                 <Zap className="w-4 h-4 text-amber-500" />
@@ -600,32 +605,32 @@ export default function WorkspacePage() {
         )}
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        <div className="flex-1 overflow-y-auto rounded-[1.4rem] border border-white/[0.055] bg-[#070910]/50 p-5 space-y-6 shadow-inner shadow-black/20 backdrop-blur-xl">
           {messages.map((message) => (
             <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
-              <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
                 message.role === 'user'
-                  ? 'bg-primary-500'
+                  ? 'bg-gradient-to-br from-cyan-300 to-blue-500 text-slate-950 shadow-[0_0_20px_rgba(34,211,238,.16)]'
                   : message.role === 'system'
-                    ? 'bg-amber-500'
-                    : 'bg-dark-800 border border-dark-700'
+                    ? 'bg-amber-300/10 border border-amber-300/20'
+                    : 'bg-violet-300/10 border border-violet-300/15'
               }`}>
                 {message.role === 'user' ? (
-                  <span className="text-white text-sm font-medium">U</span>
+                  <span className="text-slate-950 text-sm font-bold">U</span>
                 ) : message.role === 'system' ? (
                   <AlertCircle className="w-4 h-4 text-amber-400" />
                 ) : (
-                  <Terminal className="w-4 h-4 text-primary-400" />
+                  <Terminal className="w-4 h-4 text-violet-200" />
                 )}
               </div>
-              <div className={`max-w-[70%] ${message.role === 'user' ? 'text-right' : ''}`}>
+              <div className={`max-w-[76%] ${message.role === 'user' ? 'text-right' : ''}`}>
                 <div className={`inline-block p-4 rounded-2xl ${
                   message.role === 'user'
-                    ? 'bg-primary-500/20 text-white border border-primary-500/30'
-                    : 'glass-panel text-white'
+                    ? 'bg-gradient-to-br from-cyan-300/15 to-blue-500/10 text-white border border-cyan-300/15 shadow-[0_16px_40px_rgba(0,0,0,.12)]'
+                    : 'bg-white/[0.035] border border-white/[0.07] text-slate-200 shadow-[0_16px_40px_rgba(0,0,0,.12)] backdrop-blur-xl'
                 }`}>
                   {message.agent && (
-                    <p className="text-xs text-primary-400 mb-1 font-medium">{message.agent}</p>
+                    <p className="text-[10px] uppercase tracking-[.18em] text-violet-200/70 mb-2 font-semibold">{message.agent}</p>
                   )}
                   <p className="whitespace-pre-wrap">{message.content}</p>
                   {Boolean(message.metadata?.jobId) && (
@@ -648,8 +653,8 @@ export default function WorkspacePage() {
         </div>
 
         {/* Input Area */}
-        <div className="p-4 border-t border-dark-800 bg-dark-900/50 backdrop-blur-sm">
-          <form onSubmit={handleSubmit} className="flex gap-3">
+        <div className="rounded-[1.25rem] border border-white/[0.07] bg-[#090b12]/75 p-3 backdrop-blur-2xl">
+          <form onSubmit={handleSubmit} className="flex gap-2">
             <div className="flex-1 relative">
               <textarea
                 value={input}
@@ -661,7 +666,7 @@ export default function WorkspacePage() {
                   }
                 }}
                 placeholder="Type your message... (Shift+Enter for new line)"
-                className="w-full bg-dark-800 border border-dark-700 text-white placeholder-dark-500 px-4 py-3 rounded-xl focus:outline-none focus:border-primary-500 resize-none min-h-[50px] max-h-[150px]"
+                className="w-full bg-transparent border-0 text-white placeholder-slate-600 px-3 py-3 rounded-xl focus:outline-none resize-none min-h-[50px] max-h-[150px]"
                 rows={1}
                 disabled={isLoading}
               />
@@ -669,7 +674,7 @@ export default function WorkspacePage() {
             <button
               type="submit"
               disabled={isLoading || !input.trim()}
-              className="p-3 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl text-white transition-colors flex items-center justify-center"
+              className="p-3.5 bg-gradient-to-br from-cyan-300 to-blue-400 hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-slate-950 transition flex items-center justify-center shadow-[0_0_24px_rgba(34,211,238,.16)]"
             >
               {isLoading ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -678,18 +683,18 @@ export default function WorkspacePage() {
               )}
             </button>
           </form>
-          <p className="text-xs text-dark-500 text-center mt-2">
-            Press Enter to send • Shift+Enter for new line
+          <p className="text-[10px] text-slate-700 text-center mt-1">
+            Enter to build · Shift + Enter for a new line
           </p>
         </div>
       </div>
 
       {/* Right Panel - Live Preview with the four job states */}
-      <aside className="w-96 bg-dark-900 border-l border-dark-800 flex-col hidden xl:flex">
-        <div className="p-4 border-b border-dark-800 flex items-center justify-between">
+      <aside className="w-[27rem] m-3 ml-0 rounded-[1.4rem] border border-white/[0.07] bg-[#090b12]/65 shadow-2xl shadow-black/20 backdrop-blur-2xl flex-col hidden xl:flex overflow-hidden">
+        <div className="p-5 border-b border-white/[0.06] flex items-center justify-between">
           <h3 className="font-semibold text-white flex items-center gap-2">
-            <Monitor className="w-5 h-5 text-primary-500" />
-            Live Preview
+            <Monitor className="w-4 h-4 text-cyan-300" />
+            Live canvas
           </h3>
           <div className="flex items-center gap-2">
             <button
@@ -711,20 +716,20 @@ export default function WorkspacePage() {
           </div>
         </div>
 
-        <div className="flex-1 relative">
+        <div className="flex-1 relative bg-[#05070c]">
           {/* State 1: empty — no job yet */}
           {jobState === 'empty' && (
-            <div className="h-full flex flex-col items-center justify-center text-center p-8">
-              <Monitor className="w-12 h-12 text-dark-600 mb-4" />
-              <p className="text-sm text-dark-400 font-medium">No build yet</p>
-              <p className="text-xs text-dark-500 mt-1">Describe your app in the chat and the live preview will appear here.</p>
+            <div className="h-full flex flex-col items-center justify-center text-center p-8 bg-grid-fade">
+              <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl border border-cyan-300/10 bg-cyan-300/[0.035] shadow-[0_0_50px_rgba(34,211,238,.08)]"><Monitor className="w-6 h-6 text-cyan-200/70" /></div>
+              <p className="text-sm text-slate-300 font-medium">Your canvas is ready</p>
+              <p className="text-xs text-slate-600 mt-2 max-w-[15rem] leading-5">Describe the product. The live interface will materialize here as agents build.</p>
             </div>
           )}
 
           {/* State 2: loading — pipeline running */}
           {jobState === 'loading' && (
             <div className="h-full flex flex-col items-center justify-center text-center p-8">
-              <Loader2 className="w-10 h-10 animate-spin text-primary-500 mb-4" />
+              <div className="relative mb-5"><div className="absolute inset-0 rounded-full bg-cyan-300/20 blur-xl animate-pulse"/><Loader2 className="relative w-10 h-10 animate-spin text-cyan-300" /></div>
               <p className="text-sm text-white font-medium capitalize">{currentPhase}...</p>
               <p className="text-xs text-dark-500 mt-1">The agent team is building your app. This usually takes a minute or two.</p>
             </div>
@@ -771,7 +776,7 @@ export default function WorkspacePage() {
           )}
         </div>
 
-        <div className="p-4 border-t border-dark-800 bg-dark-950/50">
+        <div className="p-4 border-t border-white/[0.06] bg-black/20">
           <div className="flex items-center gap-2 text-xs text-dark-400">
             <span className={`w-2 h-2 rounded-full ${
               jobState === 'complete' ? 'bg-green-500' :
