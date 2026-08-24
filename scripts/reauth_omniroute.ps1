@@ -53,7 +53,10 @@ function Get-EnvValue {
         return $null
     }
     foreach ($line in Get-Content -LiteralPath $Path) {
-        if ($line -match "^\s*(?:export\s+)?$([regex]::Escape($Name))\s*=\s*(.*?)\s*$") {
+        # PowerShell's \s does not consume a UTF-8 BOM when it appears on the
+        # first line, so normalize it before matching dotenv entries.
+        $normalizedLine = $line.TrimStart([char]0xFEFF)
+        if ($normalizedLine -match "^\s*(?:export\s+)?$([regex]::Escape($Name))\s*=\s*(.*?)\s*$") {
             $value = $Matches[1].Trim()
             if (
                 $value.Length -ge 2 -and
@@ -66,6 +69,44 @@ function Get-EnvValue {
         }
     }
     return $null
+}
+
+function Import-OmniRouteEnvironment {
+    if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
+        throw "OmniRoute environment file was not found at $envFile"
+    }
+
+    $storageKey = Get-EnvValue -Path $envFile -Name "STORAGE_ENCRYPTION_KEY"
+    if ([string]::IsNullOrWhiteSpace($storageKey)) {
+        throw "STORAGE_ENCRYPTION_KEY is missing from $envFile. Refusing to start against encrypted credentials."
+    }
+
+    # Explicitly set the storage contract. Relying on a wrapper's inherited
+    # environment was the root cause of the previous missing-key runtime.
+    $env:STORAGE_ENCRYPTION_KEY = $storageKey
+    $env:STORAGE_ENCRYPTION_KEY_VERSION = (Get-EnvValue -Path $envFile -Name "STORAGE_ENCRYPTION_KEY_VERSION")
+    if ([string]::IsNullOrWhiteSpace($env:STORAGE_ENCRYPTION_KEY_VERSION)) {
+        $env:STORAGE_ENCRYPTION_KEY_VERSION = "v1"
+    }
+    $env:DATA_DIR = $omniHome
+    $env:OMNIROUTE_PORT = "$Port"
+    $env:PORT = "$Port"
+    $env:DASHBOARD_PORT = "$Port"
+    $env:API_PORT = "$Port"
+    $env:OMNIROUTE_BASE_URL = "$baseUrl/v1"
+
+    foreach ($name in @(
+        "OMNIROUTE_DISABLE_CREDENTIAL_HEALTH_CHECK",
+        "OMNIROUTE_DISABLE_TOKEN_HEALTHCHECK",
+        "PLAYWRIGHT_BROWSERS_PATH",
+        "WEB_COOKIE_USE_BROWSER",
+        "OMNIROUTE_BROWSER_POOL"
+    )) {
+        $value = Get-EnvValue -Path $envFile -Name $name
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            Set-Item -Path "Env:$name" -Value $value
+        }
+    }
 }
 
 function Test-GatewayListener {
@@ -133,6 +174,9 @@ function Restart-OmniRoute {
     }
 
     $nodePath = Find-SupportedNode
+    # server-ws.mjs spawns `node` by name; put the selected compatible runtime
+    # first so the child cannot silently resolve a different Node major.
+    $env:PATH = "$(Split-Path -Parent $nodePath);$env:PATH"
     $startArguments = @{
         FilePath = $nodePath
         ArgumentList = @("`"$omniCli`"", "--port", "$Port", "--no-open")
@@ -208,6 +252,8 @@ if (-not (Test-Path -LiteralPath $omniHome -PathType Container)) {
     throw "OmniRoute data directory was not found at $omniHome"
 }
 
+Import-OmniRouteEnvironment
+
 if (-not $ProbeOnly -and -not $SkipBackup) {
     Write-Step "Creating a recoverable OmniRoute configuration backup"
     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -244,6 +290,9 @@ if (-not $ProbeOnly) {
 }
 
 $apiKey = Get-EnvValue -Path $envFile -Name "OMNIROUTE_API_KEY"
+if ([string]::IsNullOrWhiteSpace($apiKey)) {
+    $apiKey = $env:OMNIROUTE_API_KEY
+}
 if ([string]::IsNullOrWhiteSpace($apiKey)) {
     throw "OMNIROUTE_API_KEY is missing from $envFile. Create/copy an endpoint key in Dashboard -> Endpoints."
 }

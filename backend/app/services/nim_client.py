@@ -27,7 +27,10 @@ except ImportError:
 
 DEFAULT_BASE_URL = os.getenv("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
 DEFAULT_MODEL = os.getenv("NIM_DEFAULT_MODEL", "meta/llama-3.1-8b-instruct")
-DEFAULT_OMNIROUTE_BASE_URL = os.getenv("OMNIROUTE_BASE_URL", "http://127.0.0.1:20128/v1")
+# 20130 is NeonBuild's canonical local OmniRoute listener. 20128 was the
+# legacy wrapper port and can remain occupied by an unrelated protected
+# process; defaulting to it recreates a split-brain gateway after restart.
+DEFAULT_OMNIROUTE_BASE_URL = os.getenv("OMNIROUTE_BASE_URL", "http://127.0.0.1:20130/v1")
 # These are OmniRoute *routes*, rather than a pinned NVIDIA model. Each route
 # is a provider-aware policy managed by OmniRoute, so it can use its ordered
 # upstream providers and credentials without NeonBuild knowing any provider
