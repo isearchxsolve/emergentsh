@@ -177,7 +177,7 @@ class TestMainWindow:
             window = MainWindow()
             
             assert window is not None
-            assert window.windowTitle() == "EmergentSH — Multi-Agent Development Environment"
+            assert window.windowTitle() == "NeonBuild — Multi-Agent Development Environment"
             assert window.project_panel is not None
             assert window.chat_area is not None
             assert window.execution_drawer is not None

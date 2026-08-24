@@ -2,7 +2,7 @@
 AgentRegistry — Central registry for agent types and instances.
 
 Provides lookup, registration, and factory access for all specialized agents
-in the emergent.sh multi-agent orchestration platform.
+in the NeonBuild multi-agent orchestration platform.
 """
 
 from typing import Dict, List, Optional, Type

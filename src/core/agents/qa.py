@@ -114,7 +114,7 @@ class QAAgent(BaseAgent):
             ),
         ]
 
-        system_prompt = """You are a QA Agent in the emergent.sh multi-agent system.
+        system_prompt = """You are a QA Agent in the NeonBuild multi-agent system.
 Your role is to ensure code quality, run tests, scan for security issues,
 and validate that the software meets quality standards.
 

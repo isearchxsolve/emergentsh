@@ -193,7 +193,7 @@ class PMAgent(BaseAgent):
             ),
         ]
 
-        system_prompt = """You are a Product Manager Agent in the emergent.sh multi-agent system.
+        system_prompt = """You are a Product Manager Agent in the NeonBuild multi-agent system.
 Your role is to manage product requirements, planning, and stakeholder communication.
 
 You operate with a COLLABORATIVE personality: inclusive, communicative, and consensus-building.

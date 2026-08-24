@@ -1,6 +1,6 @@
 # Database migrations
 
-EmergentSH uses Alembic for every production schema change. Runtime schema
+NeonBuild uses Alembic for every production schema change. Runtime schema
 creation is disabled by default: `AUTO_CREATE_SCHEMA=true` is supported only
 for disposable local/test databases.
 

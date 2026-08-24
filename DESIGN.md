@@ -1,6 +1,6 @@
-# Design: Emergent.sh Clone — UI/UX & Frontend Design System
+# Design: NeonBuild — UI/UX & Frontend Design System
 
-> Source of truth for the frontend. Every screen, component, token, state, and interaction needed to match emergent.sh quality. Implementation in `src/ui/` (PySide6 desktop shell) and the generated preview apps (React/Next.js). All inference routed exclusively through NVIDIA NIM.
+> Source of truth for the frontend. Every screen, component, token, state, and interaction needed to match NeonBuild quality. Implementation in `src/ui/` (PySide6 desktop shell) and the generated preview apps (React/Next.js). All inference routed exclusively through NVIDIA NIM.
 
 ---
 
@@ -107,7 +107,7 @@ Landing (unauthenticated)
 
 ### 6.1 Landing Page
 - **Hero:** Full-bleed dark. Headline "Build Full-Stack Web & mobile apps in minutes" (display 4xl). Subhead one line. Primary CTA "Start building" (accent pill). Secondary "Sign in".
-- **Auth modal:** Centered card, `e3` elevation. Three buttons: Continue with Google / Email / Phone. SSO link. Terms copy. Matches emergent.sh's modal exactly.
+- **Auth modal:** Centered card, `e3` elevation. Three buttons: Continue with Google / Email / Phone. SSO link. Terms copy. Matches NeonBuild's modal exactly.
 - **Pricing:** Four tiers (Free / Standard $17 / Pro $167 / Enterprise Custom) in a responsive grid; annual toggle. Feature lists with check icons.
 - **FAQ:** Accordion, 6 items, single-open.
 - **Footer:** 4 columns (Product / Solutions / Resources / Company) + copyright.

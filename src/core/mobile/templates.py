@@ -348,7 +348,7 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>Welcome to EmergentSH Mobile</Text>
+          <Text style={styles.title}>Welcome to NeonBuild Mobile</Text>
           <Text style={styles.subtitle}>
             Build mobile apps with AI-powered development
           </Text>
@@ -690,7 +690,7 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>Welcome to EmergentSH Mobile</Text>
+          <Text style={styles.title}>Welcome to NeonBuild Mobile</Text>
           <Text style={styles.subtitle}>
             Build mobile apps with AI-powered development
           </Text>

@@ -28,7 +28,7 @@ from .handoff import HANDOFF_TOOL_SCHEMA
 # ════════════════════════════════════════════════════════════════════════════
 
 class AgentRole(str, Enum):
-    """Canonical agent roles in the Emergent orchestration."""
+    """Canonical agent roles in the NeonBuild orchestration."""
     ORCHESTRATOR = "orchestrator"      # Plans, delegates, aggregates
     PLANNER = "planner"                # Task breakdown, dependency graph
     ARCHITECT = "architect"            # High-level design, tech decisions

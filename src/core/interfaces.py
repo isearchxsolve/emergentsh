@@ -1,5 +1,5 @@
 """
-Emergent.sh Clone — Core Interface Stubs
+NeonBuild Clone — Core Interface Stubs
 ========================================
 
 This module defines the abstract interfaces (Protocol/ABC) for every major
@@ -619,7 +619,7 @@ class TemplateLibrary(Protocol):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class MarketplaceClient(Protocol):
-    """Agent/template marketplace (mirrors Emergent.sh marketplace)."""
+    """Agent/template marketplace (mirrors NeonBuild marketplace)."""
 
     @abstractmethod
     async def list_agents(self) -> List[Dict[str, Any]]:

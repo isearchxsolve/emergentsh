@@ -12,7 +12,7 @@ const agents = [
 ];
 
 const capabilities = [
-  { icon: WandSparkles, title: 'Idea to interface', text: 'Describe the product. Emergent supplies the production baseline automatically.' },
+  { icon: WandSparkles, title: 'Idea to interface', text: 'Describe the product. NeonBuild supplies the production baseline automatically.' },
   { icon: Blocks, title: 'A real full stack', text: 'Frontend, API, data model, validation, tests, and runnable artifacts move together.' },
   { icon: ShieldCheck, title: 'Self-correcting loops', text: 'Agents diagnose failures, repair the artifact, and test again before calling it done.' },
 ];
@@ -35,9 +35,9 @@ export default function HomePage() {
 
       <nav className="fixed inset-x-0 top-0 z-50 px-4 pt-4">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between rounded-2xl border border-white/[0.08] bg-[#0a0c13]/70 px-4 shadow-2xl shadow-black/30 backdrop-blur-2xl sm:px-6">
-          <button onClick={() => router.push('/')} className="group flex items-center gap-3" aria-label="Emergent home">
+          <button onClick={() => router.push('/')} className="group flex items-center gap-3" aria-label="NeonBuild home">
             <span className="relative grid h-9 w-9 place-items-center overflow-hidden rounded-xl bg-gradient-to-br from-cyan-300 via-blue-500 to-violet-600 shadow-[0_0_28px_rgba(34,211,238,.28)]"><Sparkles className="h-5 w-5" /></span>
-            <span className="text-lg font-semibold tracking-[-0.03em]">Emergent<span className="text-cyan-300">SH</span></span>
+            <span className="text-lg font-semibold tracking-[-0.03em]">Neon<span className="text-cyan-300">Build</span></span>
           </button>
           <div className="hidden items-center gap-8 text-sm text-slate-400 md:flex">
             <a href="#capabilities" className="transition-colors hover:text-white">Capabilities</a>
@@ -52,7 +52,7 @@ export default function HomePage() {
         <div className="relative z-10">
           <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/[0.06] px-3 py-1.5 text-xs font-medium text-cyan-100 backdrop-blur-xl"><span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300 opacity-50" /><span className="relative h-2 w-2 rounded-full bg-emerald-300" /></span>NVIDIA NIM live · multi-agent build system</div>
           <h1 className="max-w-3xl text-5xl font-semibold leading-[.98] tracking-[-0.055em] text-balance sm:text-6xl xl:text-[5.35rem]">Your idea deserves a<span className="block bg-gradient-to-r from-white via-cyan-200 to-violet-300 bg-clip-text text-transparent">world-class build.</span></h1>
-          <p className="mt-7 max-w-xl text-lg leading-8 text-slate-400 sm:text-xl">Tell Emergent what you want to create. A coordinated AI team plans, designs, codes, tests, repairs, and previews the product with you.</p>
+          <p className="mt-7 max-w-xl text-lg leading-8 text-slate-400 sm:text-xl">Tell NeonBuild what you want to create. A coordinated AI team plans, designs, codes, tests, repairs, and previews the product with you.</p>
 
           <form onSubmit={launch} className="mt-10 max-w-2xl">
             <div className="prompt-shell group relative rounded-[1.6rem] p-px">
@@ -94,7 +94,7 @@ export default function HomePage() {
       </section>
 
       <section id="workflow" className="relative mx-auto max-w-7xl px-6 pb-28 pt-14 lg:px-8"><div className="overflow-hidden rounded-[2.4rem] border border-white/[0.08] bg-gradient-to-br from-white/[0.055] to-white/[0.015] p-8 backdrop-blur-2xl sm:p-12"><div className="grid gap-12 lg:grid-cols-[.8fr_1.2fr] lg:items-center"><div><span className="inline-flex items-center gap-2 rounded-full bg-violet-300/10 px-3 py-1 text-xs text-violet-200"><Code2 className="h-3.5 w-3.5" /> Self-healing delivery</span><h2 className="mt-5 text-4xl font-semibold tracking-[-.04em]">Build. Test. Repair.<br/>Ship with confidence.</h2><p className="mt-5 max-w-lg leading-7 text-slate-400">Each specialist hands structured artifacts to the next. When validation fails, the failing code and exact error return to the responsible agent for another pass.</p></div><div className="grid gap-3 sm:grid-cols-2">{['Plan the product baseline','Craft the visual system','Generate the full stack','Validate and self-correct'].map((step,i)=><div key={step} className="flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-black/20 p-4"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/[0.05] text-xs text-cyan-200">{i+1}</span><span className="text-sm text-slate-300">{step}</span></div>)}</div></div></div></section>
-      <footer className="relative border-t border-white/[0.06] px-6 py-8"><div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 text-xs text-slate-600 sm:flex-row"><span>EmergentSH · Intelligent software delivery</span><span>Powered by NVIDIA NIM</span></div></footer>
+      <footer className="relative border-t border-white/[0.06] px-6 py-8"><div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 text-xs text-slate-600 sm:flex-row"><span>NeonBuild · Intelligent software delivery</span><span>Powered by NVIDIA NIM</span></div></footer>
     </main>
   );
 }

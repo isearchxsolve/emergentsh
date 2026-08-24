@@ -58,7 +58,7 @@ class SidebarWidget(QWidget):
         layout.setSpacing(0)
 
         # ── Title ──────────────────────────────────────────────────
-        title = QLabel("◆ EmergentSH")
+        title = QLabel("◆ NeonBuild")
         title.setObjectName("SidebarTitle")
         layout.addWidget(title)
 

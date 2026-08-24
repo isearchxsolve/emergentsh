@@ -1,6 +1,6 @@
-# EmergentSH — Emergent.sh clone (NVIDIA NIM inference)
+# NeonBuild — NeonBuild (NVIDIA NIM inference)
 
-Production-oriented clone of [emergent.sh](https://emergent.sh): describe an app in plain English; a multi-agent team plans, codes, tests, and produces a full-stack project. **NVIDIA NIM is the primary OpenAI-compatible inference path.** An explicitly enabled OmniRoute secondary path can fail over through measured NVIDIA model routes when NIM has a transport/upstream failure.
+Production-oriented clone of [NeonBuild](https://NeonBuild): describe an app in plain English; a multi-agent team plans, codes, tests, and produces a full-stack project. **NVIDIA NIM is the primary OpenAI-compatible inference path.** An explicitly enabled OmniRoute secondary path can fail over through measured NVIDIA model routes when NIM has a transport/upstream failure.
 
 ## Quick smoke (no Docker, no API key)
 
@@ -34,7 +34,7 @@ docker compose -f docker-compose.smoke.yml up --build
 Production should set `INFERENCE_PROVIDER=omniroute`,
 `INFERENCE_STRICT_MODE=true`, and `OMNIROUTE_API_KEY`. OmniRoute owns the
 underlying NVIDIA key rotation; individual NVIDIA keys are not configured in
-EmergentSH. Direct `INFERENCE_PROVIDER=nim` remains available for development.
+NeonBuild. Direct `INFERENCE_PROVIDER=nim` remains available for development.
 
 ## OmniRoute route health
 

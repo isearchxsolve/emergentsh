@@ -615,7 +615,7 @@ try:
             super().__init__(parent)
             self._report = report
             self._send_report = False
-            self.setWindowTitle("EmergentSH Crashed")
+            self.setWindowTitle("NeonBuild Crashed")
             self.setMinimumSize(600, 500)
             self.setModal(True)
             self._build_ui()
@@ -624,7 +624,7 @@ try:
             layout = QVBoxLayout(self)
             
             # Header
-            header = QLabel("EmergentSH encountered an unexpected error")
+            header = QLabel("NeonBuild encountered an unexpected error")
             header.setFont(QFont("Segoe UI", 14, QFont.Bold))
             header.setWordWrap(True)
             layout.addWidget(header)
@@ -710,7 +710,7 @@ def get_telemetry_manager() -> TelemetryManager:
     global _TELEMETRY_MANAGER
     if _TELEMETRY_MANAGER is None:
         _TELEMETRY_MANAGER = TelemetryManager(
-            app_name="EmergentSH",
+            app_name="NeonBuild",
             app_version="1.0.0",
             enabled=False,  # Opt-in by default
         )

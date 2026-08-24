@@ -555,8 +555,8 @@ class ModelClientFactory:
             api_key=api_key or os.environ.get("OPENROUTER_API_KEY"),
             base_url=model.base_url or "https://openrouter.ai/api/v1",
             default_headers={
-                "HTTP-Referer": "https://emergentsh.dev",
-                "X-Title": "EmergentSH",
+                "HTTP-Referer": "https://neonbuild.dev",
+                "X-Title": "NeonBuild",
             },
         )
     

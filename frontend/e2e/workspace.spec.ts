@@ -25,14 +25,16 @@ test('authenticated workspace completes a build and exposes preview/export', asy
     await route.fulfill({ json: { credits: 9 } });
   });
 
-  await page.addInitScript(value => localStorage.setItem('emergent_token', value), token);
+  await page.addInitScript(value => localStorage.setItem('neonbuild_token', value), token);
   await page.goto('/workspace');
 
-  await expect(page.getByText('Welcome to Emergent')).toBeVisible();
+  await expect(page.getByText('Welcome to NeonBuild')).toBeVisible();
   const input = page.locator('textarea').last();
   await input.fill('Build a hello app');
   await input.press('Enter');
 
+  await expect(page.getByText(/Build accepted · react-native target/i)).toBeVisible();
+  await expect(page.getByText(/Analyzing the product and planning the architecture/i)).toBeVisible();
   await expect(page.getByText(/completed building your app/i)).toBeVisible();
   await expect(page.getByText(/planner is complete/i)).toBeVisible();
   await expect(page.getByTitle('Refresh preview')).toBeVisible();
@@ -63,7 +65,7 @@ test('stream interruption reconciles with completed backend status', async ({ pa
     await route.fulfill({ json: { credits: 9 } });
   });
 
-  await page.addInitScript(value => localStorage.setItem('emergent_token', value), token);
+  await page.addInitScript(value => localStorage.setItem('neonbuild_token', value), token);
   await page.goto('/workspace');
   await page.locator('textarea').last().fill('Build a resilient app');
   await page.locator('textarea').last().press('Enter');

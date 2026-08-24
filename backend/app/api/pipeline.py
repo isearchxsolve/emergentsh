@@ -62,7 +62,7 @@ def _make_mock_client():
     async def fake_stream(messages, model=None, temperature=0.4, max_tokens=4096):
         system = ((messages[0].get("content") or "") if messages else "").lower()
         if "software architect" in system:
-            yield "# Project Plan\n\n## Overview\nFull-stack app by EmergentSH.\n\n## Tech Stack\n- Next.js 14\n- FastAPI\n- SQLite\n"
+            yield "# Project Plan\n\n## Overview\nFull-stack app by NeonBuild.\n\n## Tech Stack\n- Next.js 14\n- FastAPI\n- SQLite\n"
         elif "ui/ux designer" in system:
             yield json.dumps({
                 "colors": {"primary": "#76B900", "background": "#0A0A0B", "text": "#F5F5F7"},
@@ -80,7 +80,7 @@ def _make_mock_client():
                 "export default function App() {\n"
                 "  return (\n"
                 "    <main style={{padding:'2rem',background:'#0A0A0B',color:'#F5F5F7'}} className='transition-colors'>\n"
-                "      <h1 style={{color:'#76B900'}} className='backdrop-blur-md'>EmergentSH</h1>\n"
+                "      <h1 style={{color:'#76B900'}} className='backdrop-blur-md'>NeonBuild</h1>\n"
                 "      <p className='transition-opacity hover:opacity-80'>Generated app</p>\n"
                 "    </main>\n"
                 "  );\n"

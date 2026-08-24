@@ -1,11 +1,11 @@
-# Plan: Clone of Emergent.sh using NVIDIA NIM as Inference Engine
+# Plan: Clone of NeonBuild using NVIDIA NIM as Inference Engine
 
-Emergent.sh is the world's first truly agentic "vibe coding" platform: a user describes an app in plain English and a coordinated team of specialized AI agents (Architect, Designer, Developer, Integration, Product Manager) plans, codes, tests, debugs, and deploys a production-ready full-stack application (React/Next.js frontend, FastAPI backend, MongoDB/Postgres database, built-in auth) with live preview, GitHub sync, version rollback, and credit-based usage. This project delivers a 100% working clone of that experience with **NVIDIA NIM as the exclusive inference engine** for every agent call.
+NeonBuild is the world's first truly agentic "vibe coding" platform: a user describes an app in plain English and a coordinated team of specialized AI agents (Architect, Designer, Developer, Integration, Product Manager) plans, codes, tests, debugs, and deploys a production-ready full-stack application (React/Next.js frontend, FastAPI backend, MongoDB/Postgres database, built-in auth) with live preview, GitHub sync, version rollback, and credit-based usage. This project delivers a 100% working clone of that experience with **NVIDIA NIM as the exclusive inference engine** for every agent call.
 
 ## Requirements
 
 ### Functional
-- **R1 — Landing & Onboarding:** Polished modern SaaS landing page ("Describe your idea → Build websites & apps with AI") with sign-in / start-project flow. Dark/light developer-grade aesthetic matching emergent.sh quality. No lorem ipsum, no "coming soon".
+- **R1 — Landing & Onboarding:** Polished modern SaaS landing page ("Describe your idea → Build websites & apps with AI") with sign-in / start-project flow. Dark/light developer-grade aesthetic matching NeonBuild quality. No lorem ipsum, no "coming soon".
 - **R2 — Conversational Workspace:** Chat interface where the user talks to the agent team. Messages stream in real time; agent activity (planning → coding → testing → deploying) is visualized as a progress feed. User can iterate ("add dark mode", "fix the login bug", "add a payments page").
 - **R3 — Live Preview Pane:** A live, runnable preview of the generated app that updates as the agents build. Must render a real running app, not a static screenshot.
 - **R4 — Project Dashboard:** History of projects, deployed URLs, GitHub sync status, credit balance/usage, model/agent selector.
@@ -39,7 +39,7 @@ Emergent.sh is the world's first truly agentic "vibe coding" platform: a user de
 - **K2 — Code Generation Quality:** LLM-generated code may be non-functional or contain subtle bugs. *Mitigation:* Tester/Debugger agent loop with real test execution; iterative self-healing; sandboxed execution.
 - **K3 — Live Preview Sandboxing:** Running generated apps safely in-browser/server is hard. *Mitigation:* isolated container/iframe per project; resource limits; ephemeral preview servers.
 - **K4 — Context Window Limits:** Large builds exceed token limits. *Mitigation:* per-agent scoped context, summarization, "fork" mechanism (fresh context, preserved code).
-- **K5 — Scope Creep vs. emergent.sh Parity:** Full parity is enormous. *Mitigation:* prioritize the core prompt→plan→code→test→preview loop first; layer iteration, credits, GitHub after core works.
+- **K5 — Scope Creep vs. NeonBuild Parity:** Full parity is enormous. *Mitigation:* prioritize the core prompt→plan→code→test→preview loop first; layer iteration, credits, GitHub after core works.
 - **K6 — Secret Leakage:** NIM keys must never reach the browser. *Mitigation:* server-only env vars; proxy all NIM calls through backend.
 - **K7 — Non-Determinism:** Same prompt → different builds. *Mitigation:* seed/version prompts; persist agent transcripts for reproducibility.
 - **K8 — Windows Dev Environment:** Tooling (docker, node, python) on Windows host. *Mitigation:* cross-platform scripts; document Windows-specific setup.

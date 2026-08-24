@@ -1,1 +1,1 @@
-# EmergentSH — Autonomous AI Agent Desktop Environment
+# NeonBuild — Autonomous AI Agent Desktop Environment

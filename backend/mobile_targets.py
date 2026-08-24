@@ -41,11 +41,11 @@ class BuildReadiness:
         return json.dumps(asdict(self), indent=2)
 
 
-def react_native_scaffold(name: str = "emergent-app") -> Dict[str, str]:
-    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "emergent-app"
+def react_native_scaffold(name: str = "neonbuild-app") -> Dict[str, str]:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "neonbuild-app"
     return {
         "mobile/package.json": json.dumps({"name": slug, "version": "1.0.0", "private": True, "main": "expo-router/entry", "scripts": {"start": "expo start", "android": "expo run:android", "ios": "expo run:ios", "typecheck": "tsc --noEmit", "test": "jest --passWithNoTests", "build:android": "eas build --platform android --profile production", "build:ios": "eas build --platform ios --profile production"}, "dependencies": {"expo": "~51.0.0", "expo-router": "~3.5.0", "expo-status-bar": "~1.12.0", "react": "18.2.0", "react-native": "0.74.0", "react-native-safe-area-context": "4.10.0", "react-native-screens": "~3.31.0"}, "devDependencies": {"@types/react": "~18.2.0", "jest": "^29.7.0", "jest-expo": "~51.0.0", "typescript": "^5.4.0"}, "jest": {"preset": "jest-expo"}}, indent=2),
-        "mobile/app.json": json.dumps({"expo": {"name": name, "slug": slug, "scheme": slug, "version": "1.0.0", "orientation": "default", "userInterfaceStyle": "automatic", "plugins": ["expo-router"], "ios": {"supportsTablet": True, "bundleIdentifier": f"com.emergentsh.{slug.replace('-', '')}"}, "android": {"package": f"com.emergentsh.{slug.replace('-', '')}"}, "experiments": {"typedRoutes": True}}}, indent=2),
+        "mobile/app.json": json.dumps({"expo": {"name": name, "slug": slug, "scheme": slug, "version": "1.0.0", "orientation": "default", "userInterfaceStyle": "automatic", "plugins": ["expo-router"], "ios": {"supportsTablet": True, "bundleIdentifier": f"com.neonbuild.{slug.replace('-', '')}"}, "android": {"package": f"com.neonbuild.{slug.replace('-', '')}"}, "experiments": {"typedRoutes": True}}}, indent=2),
         "mobile/eas.json": json.dumps({"cli": {"version": ">= 10.0.0"}, "build": {"development": {"developmentClient": True, "distribution": "internal"}, "preview": {"distribution": "internal"}, "production": {"autoIncrement": True}}, "submit": {"production": {}}}, indent=2),
         "mobile/tsconfig.json": json.dumps({"extends": "expo/tsconfig.base", "compilerOptions": {"strict": True, "noUncheckedIndexedAccess": True, "paths": {"@/*": ["./*"]}}, "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]}, indent=2),
         "mobile/app/_layout.tsx": "import { Stack } from 'expo-router';\nimport { SafeAreaProvider } from 'react-native-safe-area-context';\nexport default function Layout(){return <SafeAreaProvider><Stack screenOptions={{headerShown:false}} /></SafeAreaProvider>}\n",
@@ -55,10 +55,10 @@ def react_native_scaffold(name: str = "emergent-app") -> Dict[str, str]:
     }
 
 
-def flutter_scaffold(name: str = "emergent_app") -> Dict[str, str]:
-    package = re.sub(r"[^a-z0-9_]", "_", name.lower()).strip("_") or "emergent_app"
+def flutter_scaffold(name: str = "neonbuild_app") -> Dict[str, str]:
+    package = re.sub(r"[^a-z0-9_]", "_", name.lower()).strip("_") or "neonbuild_app"
     return {
-        "mobile/pubspec.yaml": f"name: {package}\ndescription: EmergentSH generated mobile application\npublish_to: 'none'\nversion: 1.0.0+1\nenvironment:\n  sdk: '>=3.4.0 <4.0.0'\ndependencies:\n  flutter:\n    sdk: flutter\n  cupertino_icons: ^1.0.8\ndev_dependencies:\n  flutter_test:\n    sdk: flutter\n  flutter_lints: ^4.0.0\nflutter:\n  uses-material-design: true\n",
+        "mobile/pubspec.yaml": f"name: {package}\ndescription: NeonBuild generated mobile application\npublish_to: 'none'\nversion: 1.0.0+1\nenvironment:\n  sdk: '>=3.4.0 <4.0.0'\ndependencies:\n  flutter:\n    sdk: flutter\n  cupertino_icons: ^1.0.8\ndev_dependencies:\n  flutter_test:\n    sdk: flutter\n  flutter_lints: ^4.0.0\nflutter:\n  uses-material-design: true\n",
         "mobile/analysis_options.yaml": "include: package:flutter_lints/flutter.yaml\nanalyzer:\n  language:\n    strict-casts: true\n    strict-raw-types: true\n",
         "mobile/test/widget_test.dart": "import 'package:flutter_test/flutter_test.dart';\nimport 'package:" + package + "/main.dart';\nvoid main(){testWidgets('app starts',(tester) async {await tester.pumpWidget(const GeneratedApp()); expect(find.byType(GeneratedApp), findsOneWidget);});}\n",
         "mobile/.env.example": "API_URL=http://127.0.0.1:8000\n",
@@ -70,7 +70,7 @@ def scaffold_for(target: str, name: str) -> Dict[str, str]:
     if target == "pwa":
         return {
             "frontend/public/manifest.webmanifest": json.dumps({"name": name, "short_name": name[:12], "start_url": "/", "display": "standalone", "background_color": "#030509", "theme_color": "#10b981", "icons": []}, indent=2),
-            "frontend/public/sw.js": "const CACHE='emergent-v1';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['/']))));self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>caches.match(e.request))));\n",
+            "frontend/public/sw.js": "const CACHE='neonbuild-v1';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['/']))));self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>caches.match(e.request))));\n",
             "PWA_READINESS.json": json.dumps({"installable_contract": True, "offline_shell": True, "audit_required": "Lighthouse production audit"}, indent=2),
         }
     if target == "react-native":

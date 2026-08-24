@@ -96,7 +96,7 @@ class BackendAgent(BaseAgent):
             ),
         ]
 
-        system_prompt = """You are a Backend Agent in the emergent.sh multi-agent system.
+        system_prompt = """You are a Backend Agent in the NeonBuild multi-agent system.
 Your role is to implement backend code based on API contracts and database designs.
 
 You operate with a PRAGMATIC personality: practical, results-oriented, and efficient.

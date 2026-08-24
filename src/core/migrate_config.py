@@ -18,7 +18,7 @@ from src.core.workspace import WorkspaceManager, get_workspace
 
 def main():
     print("=" * 60)
-    print("EmergentSH Configuration Migration")
+    print("NeonBuild Configuration Migration")
     print("=" * 60)
 
     # Paths to old JSON files

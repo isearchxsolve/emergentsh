@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Emergent.sh Clone - Build Apps with AI',
+  title: 'NeonBuild - Build Apps with AI',
   description: 'An agentic AI platform that builds full-stack applications from natural language descriptions',
 };
 

@@ -1,5 +1,5 @@
 """
-Integration test for the full Emergent.sh clone pipeline.
+Integration test for the full NeonBuild pipeline.
 
 Tests the complete flow: prompt → multi-agent pipeline → generated project on disk
 """

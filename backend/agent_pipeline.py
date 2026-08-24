@@ -1,5 +1,5 @@
 """
-Agent Pipeline — Orchestrates multi-agent task execution for Emergent.sh clone.
+Agent Pipeline — Orchestrates multi-agent task execution for NeonBuild.
 
 This module defines the AgentPipeline class which coordinates the lifecycle of
 a user-initiated app generation request through the full agent chain:
@@ -543,7 +543,7 @@ class FrontendAgent(BaseAgent):
           artifact_name = "frontend/App.tsx"
 
         ctx.set_artifact(artifact_name, code)
-        for name, content in scaffold_for(ctx.target, "Emergent App").items():
+        for name, content in scaffold_for(ctx.target, "NeonBuild App").items():
             if name != artifact_name:
                 ctx.set_artifact(name, content)
         ctx.set_artifact("TARGET.json", json.dumps({"target": ctx.target, "platforms": ["android", "ios"] if ctx.target in {"flutter", "react-native"} else ["web"]}, indent=2))
@@ -968,7 +968,12 @@ class AgentPipeline:
             if ctx.status == PipelineStatus.FAILED:
                 break
             yield {"event": "agent_start", "role": agent.role.value, "data": {}}
+            errors_before = len(ctx.errors)
             ctx = await self._run_agent_with_retry(agent, ctx)
+            retry_errors = ctx.errors[errors_before:]
+            if ctx.status != PipelineStatus.FAILED:
+                for attempt, error in enumerate(retry_errors, start=1):
+                    yield {"event": "agent_retry", "role": agent.role.value, "data": {"attempt": attempt + 1, "reason": error[:500], "recovered": True}}
             if ctx.status == PipelineStatus.FAILED:
                 yield {
                     "event": "agent_error",

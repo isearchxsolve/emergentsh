@@ -1,4 +1,4 @@
-"""Emergent.sh Clone API — NVIDIA NIM exclusive."""
+"""NeonBuild application-generation API."""
 from __future__ import annotations
 import os, asyncio
 from contextlib import asynccontextmanager
@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
         pass
     await close_db()
 
-app = FastAPI(title="Emergent.sh Clone API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="NeonBuild API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8000").split(","), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.include_router(auth.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
@@ -36,7 +36,7 @@ app.mount("/preview", StaticFiles(directory=str(_preview), html=True), name="pre
 
 @app.get("/")
 async def root():
-    return {"name": "Emergent.sh Clone API", "version": "1.0.0", "inference": os.getenv("INFERENCE_PROVIDER", "auto"), "docs": "/docs", "pipeline": "/api/pipeline/run"}
+    return {"name": "NeonBuild API", "version": "1.0.0", "inference": os.getenv("INFERENCE_PROVIDER", "auto"), "docs": "/docs", "pipeline": "/api/pipeline/run"}
 
 @app.get("/health")
 async def health():

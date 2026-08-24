@@ -1,4 +1,4 @@
-"""Compatibility entry point for EmergentSH code-generation runs.
+"""Compatibility entry point for NeonBuild code-generation runs.
 
 The executable pipeline lives in :mod:`backend.agent_pipeline`.  Keeping this
 small adapter preserves the historical module path while routing callers to

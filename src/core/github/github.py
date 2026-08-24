@@ -176,7 +176,7 @@ class GitHubClient:
         self._session.headers.update({
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "EmergentSH/1.0",
+            "User-Agent": "NeonBuild/1.0",
         })
         
         self._app_token: Optional[str] = None
@@ -191,7 +191,7 @@ class GitHubClient:
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "EmergentSH/1.0",
+            "User-Agent": "NeonBuild/1.0",
         }
         
         if self._token:

@@ -66,7 +66,7 @@ class FrontendAgent(BaseAgent):
                 produces_artifacts=["test_files"],
             ),
         ]
-        system_prompt = """You are a Frontend Agent in the emergent.sh multi-agent system.
+        system_prompt = """You are a Frontend Agent in the NeonBuild multi-agent system.
 Your role is to implement frontend code based on design specifications and API contracts.
 You operate with a PRAGMATIC personality: practical, results-oriented, and efficient.
 You produce clean, maintainable, and performant frontend code.

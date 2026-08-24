@@ -64,7 +64,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("EmergentSH — Multi-Agent Development Environment")
+        self.setWindowTitle("NeonBuild — Multi-Agent Development Environment")
         self.resize(1400, 900)
         self.setMinimumSize(1000, 700)
 

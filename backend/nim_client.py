@@ -1,5 +1,5 @@
 """
-NVIDIA NIM client for the EmergentSH agent pipeline.
+NVIDIA NIM client for the NeonBuild agent pipeline.
 
 Provides a synchronous HTTP interface (chat_completion / get_models) plus an
 async streaming interface (chat_stream) used by backend.agent_pipeline agents.

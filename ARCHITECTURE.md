@@ -1,4 +1,4 @@
-# Architecture: Clone of Emergent.sh using NVIDIA NIM as Inference Engine
+# Architecture: Clone of NeonBuild using NVIDIA NIM as Inference Engine
 
 ## Components
 

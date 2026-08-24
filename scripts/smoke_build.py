@@ -10,7 +10,7 @@ PREVIEW_ROOT = ROOT / "preview_apps"
 
 def _index(project_dir: Path, prompt: str, artifacts: list) -> Path:
     rows = "".join(f"<li><a href='{a}'><code>{a}</code></a></li>" for a in sorted(artifacts))
-    html = f"""<!DOCTYPE html><html><head><meta charset=utf-8><title>EmergentSH Preview</title>
+    html = f"""<!DOCTYPE html><html><head><meta charset=utf-8><title>NeonBuild Preview</title>
 <style>body{{margin:0;font-family:system-ui;background:#0A0A0B;color:#F5F5F7}}header{{padding:1.5rem;background:#131316;border-bottom:1px solid #26262C}}
 h1 span{{color:#76B900}}main{{padding:2rem;max-width:900px;margin:auto}}a{{color:#76B900}}</style></head>
 <body><header><h1>Emergent<span>SH</span> Preview</h1></header><main>

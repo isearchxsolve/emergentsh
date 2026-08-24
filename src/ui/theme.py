@@ -1,5 +1,5 @@
 """
-DARK_THEME — QSS stylesheet for the Emergent.sh clone.
+DARK_THEME — QSS stylesheet for the NeonBuild.
 
 Colour palette per DESIGN.md (NVIDIA identity, near-black, developer-grade):
   bg-base       #0A0A0B    bg-surface    #131316    bg-surface-2  #1B1B20

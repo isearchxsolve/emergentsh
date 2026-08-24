@@ -26,7 +26,8 @@ type AuthState = 'checking' | 'signed_out' | 'signed_in';
 type JobState = 'empty' | 'loading' | 'error' | 'complete';
 type PreviewDevice = 'desktop' | 'tablet' | 'mobile';
 
-const TOKEN_KEY = 'emergent_token';
+const TOKEN_KEY = 'neonbuild_token';
+const LEGACY_TOKEN_KEY = 'emergent_token';
 
 function readableApiError(payload: unknown, fallback: string): string {
   const detail = (payload as { detail?: unknown } | null)?.detail;
@@ -52,6 +53,17 @@ const ROLE_TO_PHASE: Record<string, Phase> = {
   devops: 'deploying',
 };
 
+const AGENT_PROGRESS: Record<string, string> = {
+  planner: 'Analyzing the product and planning the architecture',
+  designer: 'Creating the visual system and interaction model',
+  frontend: 'Building the polished application interface',
+  backend: 'Implementing APIs, data models, auth, and validation',
+  integration: 'Connecting the frontend, backend, and environment',
+  preview: 'Rendering the isolated interactive preview',
+  qa: 'Running tests and repairing detected failures',
+  devops: 'Packaging deployment, CI, and export artifacts',
+};
+
 function authHeaders(token: string | null): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
@@ -62,7 +74,7 @@ export default function WorkspacePage() {
       id: '1',
       role: 'assistant',
       agent: 'Orchestrator',
-      content: 'Welcome to Emergent! I\'m your Orchestrator agent. Describe the app you want to build, and my team will plan, code, test, and deploy it for you.',
+      content: 'Welcome to NeonBuild! I\'m your Orchestrator agent. Describe the app you want to build, and my team will plan, code, test, and deploy it for you.',
       timestamp: new Date(),
     },
   ]);
@@ -99,6 +111,7 @@ export default function WorkspacePage() {
       const res = await fetch('/api/pipeline/credits', { headers: authHeaders(t) });
       if (res.status === 401) {
         localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(LEGACY_TOKEN_KEY);
         setToken(null);
         setAuthState('signed_out');
         return;
@@ -114,8 +127,10 @@ export default function WorkspacePage() {
 
   useEffect(() => {
     setMounted(true);
-    const stored = localStorage.getItem(TOKEN_KEY);
+    const stored = localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY);
     if (stored) {
+      localStorage.setItem(TOKEN_KEY, stored);
+      localStorage.removeItem(LEGACY_TOKEN_KEY);
       setToken(stored);
       setAuthState('signed_in');
       loadCredits(stored);
@@ -143,6 +158,7 @@ export default function WorkspacePage() {
 
   const signOut = () => {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
     setToken(null);
     setCredits(null);
     setAuthState('signed_out');
@@ -300,6 +316,29 @@ export default function WorkspacePage() {
       }]);
       const phase = ROLE_TO_PHASE[agentName];
       if (phase) setCurrentPhase(phase);
+      if (running) {
+        const progressKey = `${jobId}:${agentName}:start`;
+        setMessages(prev => prev.some(message => message.metadata?.progressKey === progressKey) ? prev : [...prev, {
+          id: progressKey,
+          role: 'tool',
+          agent: agentName,
+          content: AGENT_PROGRESS[agentName] || `${agentName} is working`,
+          timestamp: new Date(),
+          metadata: { progressKey, jobId },
+        }]);
+      }
+    } else if (payload.event === 'agent_retry') {
+      const agentName = payload.role || 'agent';
+      const attempt = payload.data?.attempt || 2;
+      const progressKey = `${jobId}:${agentName}:retry:${attempt}`;
+      setMessages(prev => prev.some(message => message.metadata?.progressKey === progressKey) ? prev : [...prev, {
+        id: progressKey,
+        role: 'tool',
+        agent: agentName,
+        content: `${agentName} detected a validation issue and self-corrected on attempt ${attempt}.`,
+        timestamp: new Date(),
+        metadata: { progressKey, jobId },
+      }]);
     } else if (payload.event === 'agent_error') {
       setActivities(prev => [...prev, {
         id: Date.now().toString() + Math.random(),
@@ -382,6 +421,13 @@ export default function WorkspacePage() {
       const jobId = data.job_id;
       setOutputTarget(data.target || 'web');
       setCurrentJobId(jobId);
+      setMessages(prev => [...prev, {
+        id: `${jobId}:queued`,
+        role: 'system',
+        content: `Build accepted · ${data.target || 'web'} target · agents are starting now.`,
+        timestamp: new Date(),
+        metadata: { progressKey: `${jobId}:queued`, jobId },
+      }]);
       loadCredits(token);
       streamJob(jobId, token);
     } catch (error: any) {
@@ -469,7 +515,7 @@ export default function WorkspacePage() {
               <Zap className="w-5 h-5 text-slate-950 fill-current" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold tracking-[-.03em] text-white">Emergent<span className="text-cyan-300">SH</span> Studio</h1>
+              <h1 className="text-xl font-semibold tracking-[-.03em] text-white">Neon<span className="text-cyan-300">Build</span> Studio</h1>
               <p className="text-xs text-slate-500">Your multi-agent software team</p>
             </div>
           </div>
@@ -578,7 +624,7 @@ export default function WorkspacePage() {
         <header className="h-16 rounded-[1.25rem] border border-white/[0.07] bg-[#090b12]/65 shadow-xl shadow-black/10 backdrop-blur-2xl flex items-center justify-between px-5 z-10">
           <div className="flex items-center gap-3">
             <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-cyan-300 to-violet-500 text-slate-950 shadow-[0_0_20px_rgba(34,211,238,.16)]"><Zap className="h-4 w-4 fill-current" /></span>
-            <div><h2 className="font-semibold tracking-[-.025em] text-white">Project Studio</h2><p className="text-[10px] text-slate-600">EmergentSH · live workspace</p></div>
+            <div><h2 className="font-semibold tracking-[-.025em] text-white">Project Studio</h2><p className="text-[10px] text-slate-600">NeonBuild · live workspace</p></div>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-300/[0.06] rounded-xl text-xs text-amber-100/80 font-medium mr-1 border border-amber-300/10">

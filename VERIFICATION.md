@@ -1,4 +1,4 @@
-# Verification: Clone of Emergent.sh using NVIDIA NIM as Inference Engine
+# Verification: Clone of NeonBuild using NVIDIA NIM as Inference Engine
 
 - [x] **NIM connectivity + working client confirmed** (already green: `pytest tests/test_nim_client.py -v`). — test: tests/test_nim_client.py::test_nim_config_defaults, tests/test_nim_client.py::test_nim_client_init, tests/test_nim_client.py::test_chat_completion_returns_response, tests/test_nim_client.py::test_chat_completion_with_model, tests/test_nim_client.py::test_get_models_returns_list, tests/test_nim_client.py::test_chat_completion_missing_api_key_raises
 

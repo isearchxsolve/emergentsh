@@ -16,7 +16,7 @@ from datetime import datetime
 
 
 class AgentRole(Enum):
-    """Predefined agent roles in the emergent.sh platform."""
+    """Predefined agent roles in the NeonBuild platform."""
     PLANNING = "planning"
     DESIGN = "design"
     FRONTEND = "frontend"

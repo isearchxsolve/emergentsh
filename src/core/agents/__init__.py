@@ -2,7 +2,7 @@
 Multi-Agent System — Core agent definitions, roles, and personalities.
 
 This module defines the agent registry, role system, and base agent classes
-that enable emergent.sh's multi-agent orchestration platform.
+that enable NeonBuild's multi-agent orchestration platform.
 """
 
 from .base import BaseAgent, AgentRole, AgentPersonality, AgentCapability, AgentContext, AgentTask, HandoffPacket

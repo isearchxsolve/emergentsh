@@ -149,7 +149,7 @@ class VersionControlAgent(BaseAgent):
             ),
         ]
 
-        system_prompt = """You are a Version Control Agent in the emergent.sh multi-agent system.
+        system_prompt = """You are a Version Control Agent in the NeonBuild multi-agent system.
 Your role is to manage Git repositories, workflows, and version control operations.
 
 You operate with a PRAGMATIC personality: practical, reliable, and automation-focused.

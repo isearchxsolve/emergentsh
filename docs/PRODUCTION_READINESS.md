@@ -10,7 +10,7 @@
 | Token-revocation schema | Closed | `token_revocations` is included in Alembic revision `9936aa792817`. |
 | Multi-worker SSE delivery | Closed | Jobs and append-only events are stored in `pipeline_jobs` and `pipeline_events`. Each stream reads events by database ID, so independent clients and API replicas do not consume one another's events. `test_em7_durable_pipeline_stream.py` verifies replay from two independent sessions. |
 | Crash-recoverable pipeline execution | Closed | Replica workers atomically lease durable jobs. Expired work can be reclaimed after process loss without double execution; migration `b724e18a09f1` adds lease and attempt metadata. |
-| Scaled inference | Closed | `INFERENCE_PROVIDER=omniroute` makes OmniRoute the primary gateway and leaves NVIDIA key rotation outside EmergentSH. Strict mode fails closed. |
+| Scaled inference | Closed | `INFERENCE_PROVIDER=omniroute` makes OmniRoute the primary gateway and leaves NVIDIA key rotation outside NeonBuild. Strict mode fails closed. |
 | Mobile source contracts | Closed | Active platform routing generates Expo/React Native or Flutter Android/iOS projects, CI, tests, identifiers, environment templates, build-readiness evidence, and an explicitly labelled interactive simulation. |
 | Generated preview materialization | Closed | A required preview stage emits validated, offline, self-contained `index.html`; successful jobs no longer advertise an absent preview. |
 
@@ -29,7 +29,7 @@ way to bypass this: there is intentionally no charge/confirmation path yet.
 This checkout has one visible commit (`0d845bd`) and a mass staged deletion
 plus untracked replacement state. No Git remote is configured. `git fsck`
 also finds a very large set of unreachable objects, including material that is
-unrelated to EmergentSH and may include secrets. These facts are insufficient
+unrelated to NeonBuild and may include secrets. These facts are insufficient
 to identify an authoritative parent history safely.
 
 Required operator input:
@@ -38,7 +38,7 @@ Required operator input:
 2. Preserve the current workspace and `.git` directory before attempting any
    reset, checkout, clean, or garbage collection.
 3. Compare the supplied history with this extracted project in a separate
-   worktree, then decide whether to transplant the EmergentSH files or restore
+   worktree, then decide whether to transplant the NeonBuild files or restore
    the parent tree.
 4. Rotate any credentials that appear in recovered historical objects; do not
    treat Git garbage as a safe secret store.

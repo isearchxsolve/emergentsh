@@ -24,10 +24,10 @@ print(f'TokenMeter: prompt={tm.total_prompt}, completion={tm.total_completion} -
 from src.core.tools import FileTools, execute_tool
 ft = FileTools('.')
 result = ft.read('main.py')
-assert 'EmergentSH' in result, 'Should read main.py'
+assert 'NeonBuild' in result, 'Should read main.py'
 print(f'FileTools.read: {len(result)} chars - OK')
 
-result = ft.search('EmergentSH', 'src')
+result = ft.search('NeonBuild', 'src')
 assert len(result) > 0, 'Should find matches in src'
 print(f'FileTools.search: found matches - OK')
 

@@ -88,7 +88,7 @@ class IntegrationAgent(BaseAgent):
             ),
         ]
 
-        system_prompt = """You are an Integration Agent in the emergent.sh multi-agent system.
+        system_prompt = """You are an Integration Agent in the NeonBuild multi-agent system.
 Your role is to integrate frontend and backend, set up testing, deployment, and CI/CD.
 
 You operate with a PRAGMATIC personality: practical, results-oriented, and efficient.

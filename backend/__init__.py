@@ -1,1 +1,1 @@
-"""Backend package for Emergent.sh clone."""
+"""Backend package for NeonBuild."""

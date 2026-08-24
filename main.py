@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-EmergentSH — Autonomous AI Agent Desktop Environment
+NeonBuild — Autonomous AI Agent Desktop Environment
 =====================================================
 
 A modern, native Windows desktop application built with PySide6 that
-serves as an autonomous AI agent environment, similar to emergent.sh.
+serves as an autonomous AI agent environment, similar to NeonBuild.
 
 The core AI engine is based on the NVIDIA NIM terminal agent, ported
 into a non-blocking, responsive GUI with:
@@ -35,8 +35,8 @@ from src.ui.theme import DARK_THEME_QSS
 
 def main() -> int:
     app = QApplication(sys.argv)
-    app.setApplicationName("EmergentSH")
-    app.setOrganizationName("EmergentSH")
+    app.setApplicationName("NeonBuild")
+    app.setOrganizationName("NeonBuild")
 
     # Apply dark theme globally
     app.setStyleSheet(DARK_THEME_QSS)

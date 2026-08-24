@@ -175,7 +175,7 @@ class WindowsCredentialManager:
     
     @classmethod
     def list_all(cls) -> List[str]:
-        """List all EmergentSH credentials."""
+        """List all NeonBuild credentials (including legacy service entries)."""
         if not cls.is_available():
             return []
         
@@ -352,7 +352,7 @@ class AuthManager:
         
         # Try Windows Credential Manager first
         if self._use_windows_cred:
-            comment = f"EmergentSH {provider} {cred_type} - {metadata.get('description', '')}"
+            comment = f"NeonBuild {provider} {cred_type} - {metadata.get('description', '')}"
             if WindowsCredentialManager.store(name, value, comment):
                 return True
         

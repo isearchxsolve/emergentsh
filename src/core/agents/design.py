@@ -117,7 +117,7 @@ class DesignAgent(BaseAgent):
             ),
         ]
 
-        system_prompt = """You are a Design Agent in the emergent.sh multi-agent system.
+        system_prompt = """You are a Design Agent in the NeonBuild multi-agent system.
 Your role is to create system architectures, database designs, API contracts,
 and UI/UX designs based on requirements and planning artifacts.
 

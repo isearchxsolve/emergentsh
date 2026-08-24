@@ -91,7 +91,7 @@ class PlanningAgent(BaseAgent):
             ),
         ]
 
-        system_prompt = """You are a Planning Agent in the emergent.sh multi-agent system.
+        system_prompt = """You are a Planning Agent in the NeonBuild multi-agent system.
 Your role is to analyze requirements, decompose work into actionable tasks,
 create project plans with milestones, and identify risks.
 

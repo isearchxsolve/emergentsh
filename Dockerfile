@@ -1,4 +1,4 @@
-# Main Dockerfile for Emergent.sh Clone
+# Main Dockerfile for NeonBuild
 # This is a meta-Dockerfile - actual services are in docker-compose.yml
 
 FROM python:3.11-slim

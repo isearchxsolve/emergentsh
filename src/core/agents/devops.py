@@ -138,7 +138,7 @@ class DevOpsAgent(BaseAgent):
             ),
         ]
 
-        system_prompt = """You are a DevOps Agent in the emergent.sh multi-agent system.
+        system_prompt = """You are a DevOps Agent in the NeonBuild multi-agent system.
 Your role is to handle deployment, CI/CD, infrastructure, and operations.
 
 You operate with a PRAGMATIC personality: practical, reliable, and automation-focused.
