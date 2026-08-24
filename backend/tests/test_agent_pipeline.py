@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -7,11 +9,13 @@ from backend.agent_pipeline import (
     AgentPipeline,
     BackendAgent,
     DesignerAgent,
+    FrontendAgent,
     QAAgent,
     PlannerAgent,
     PipelineContext,
     PipelineStatus,
     complete_design_tokens,
+    GENERATED_TEST_BOOTSTRAP,
     deterministic_project_smoke_tests,
     validate_preview_html,
     validate_plan_contract,
@@ -117,6 +121,18 @@ class RepairingBackendClient:
             yield VALID_BACKEND
 
 
+class RepairingFrontendClient:
+    def __init__(self) -> None:
+        self.requests: list[str] = []
+
+    async def chat_stream(self, messages, **_kwargs):
+        self.requests.append(messages[-1]["content"])
+        if len(self.requests) == 1:
+            yield "This is not a React component."
+        else:
+            yield VALID_FRONTEND
+
+
 class RecordingRouteClient:
     def __init__(self) -> None:
         self.models: list[str | None] = []
@@ -132,9 +148,10 @@ async def test_agents_select_omniroute_policy_by_stage(monkeypatch) -> None:
     client = RecordingRouteClient()
 
     await DesignerAgent(client)._call_nim("design this")
+    await FrontendAgent(client)._call_nim("build the frontend")
     await BackendAgent(client)._call_nim("build this")
 
-    assert client.models == ["auto/best-reasoning", "auto/best-coding"]
+    assert client.models == ["auto/best-reasoning", "gemini/gemini-3.6-flash", "auto/best-coding"]
 
 
 @pytest.mark.asyncio
@@ -200,6 +217,24 @@ async def test_backend_retry_receives_failed_attempt_and_self_repairs() -> None:
     assert repaired.artifacts["backend/main.py"].startswith("from fastapi")
     assert "_backend_last_attempt.py" not in repaired.artifacts
     assert client.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_frontend_retry_receives_the_invalid_attempt_and_self_repairs() -> None:
+    client = RepairingFrontendClient()
+    context = PipelineContext(user_prompt="Build an app")
+    context.set_artifact("PLAN.md", "# Plan\n\n## Features\nItems")
+    context.set_artifact("design_tokens.json", json.dumps({"colors": {"primary": "#76B900"}}))
+
+    repaired = await AgentPipeline(client)._run_agent_with_retry(FrontendAgent(client), context)
+
+    assert repaired.artifacts["frontend/App.tsx"].startswith("import React")
+    assert "_frontend_last_attempt.tsx" not in repaired.artifacts
+    assert len(client.requests) == 2
+    assert "DELIVERY ENVELOPE (non-negotiable)" in client.requests[0]
+    assert "Do not split it into parts" in client.requests[0]
+    assert "PREVIOUS INVALID FRONTEND OUTPUT" in client.requests[1]
+    assert "This is not a React component." in client.requests[1]
 
 
 @pytest.mark.parametrize(
@@ -392,6 +427,40 @@ def test_qa_node_rejects_tautological_or_non_api_tests() -> None:
     assert "fewer than two executable tests" in violations
     assert "tautological assert True is not a product test" in violations
     assert "no API client execution" in violations
+
+
+def test_qa_node_rejects_ambiguous_generated_backend_import() -> None:
+    tests = """from fastapi.testclient import TestClient
+import main
+client = TestClient(main.app)
+def test_health(): assert client.get('/health').status_code == 200
+def test_create(): assert client.post('/items', json={}).status_code < 500
+"""
+
+    assert "tests must import the generated API from backend.main, not ambiguous main" in validate_qa_contract(tests)
+
+
+def test_generated_test_bootstrap_prioritizes_project_backend(tmp_path) -> None:
+    backend = tmp_path / "backend"
+    tests = tmp_path / "tests"
+    backend.mkdir()
+    tests.mkdir()
+    (backend / "main.py").write_text("SOURCE = 'generated-backend'\n", encoding="utf-8")
+    (tests / "conftest.py").write_text(GENERATED_TEST_BOOTSTRAP, encoding="utf-8")
+    (tests / "test_import.py").write_text(
+        "import main\n\ndef test_import_targets_generated_backend():\n    assert main.SOURCE == 'generated-backend'\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/test_import.py", "-q"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_integration_artifact_node_requires_host_and_environment_contracts() -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
@@ -214,6 +215,27 @@ async def test_omniroute_failure_opens_circuit(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.asyncio
+async def test_omniroute_completion_enforces_a_total_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def handler(_: httpx.Request) -> httpx.Response:
+        # A transport can continue producing bytes and thereby avoid a normal
+        # HTTP read timeout. The client must still respect its overall budget.
+        await asyncio.sleep(0.05)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "late"}}]})
+
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "omni-test-key")
+    client = AsyncOmniRouteClient(models=["auto/best-coding"], timeout=0.01, cooldown_seconds=60)
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(base_url=client.base_url, transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(RuntimeError, match=r"auto/best-coding \(TimeoutError\)"):
+            await client.chat_completion(messages=[{"role": "user", "content": "hi"}])
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_omniroute_route_error_reports_only_safe_route_statuses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -264,6 +286,8 @@ async def test_omniroute_stream_accepts_gateway_json_completion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        # OmniRoute can legitimately return a full JSON completion even when
+        # the client requests its default terminal-event streaming mode.
         assert json.loads(request.content)["stream"] is True
         return httpx.Response(
             200,
@@ -287,6 +311,64 @@ async def test_omniroute_stream_accepts_gateway_json_completion(
 
 
 @pytest.mark.asyncio
+async def test_omniroute_streaming_can_be_explicitly_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert json.loads(request.content)["stream"] is True
+        return httpx.Response(
+            200,
+            text='data: {"choices":[{"delta":{"content":"streamed"}}]}\n\n'
+            'data: {"choices":[{"delta":{"content":" response"}}]}\n\n'
+            "data: [DONE]\n\n",
+        )
+
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "omni-test-key")
+    monkeypatch.setenv("OMNIROUTE_STREAMING_ENABLED", "true")
+    client = AsyncOmniRouteClient(models=["auto/best-coding"])
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(base_url=client.base_url, transport=httpx.MockTransport(handler))
+    try:
+        chunks = [
+            chunk async for chunk in client.chat_stream(
+                messages=[{"role": "user", "content": "hi"}], model="auto/best-reasoning"
+            )
+        ]
+    finally:
+        await client.close()
+
+    assert chunks == ["streamed", " response"]
+
+
+@pytest.mark.asyncio
+async def test_omniroute_stream_stops_at_finish_reason_without_done_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert json.loads(request.content)["stream"] is True
+        return httpx.Response(
+            200,
+            text='data: {"choices":[{"delta":{"content":"complete"}}]}\n\n'
+            'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+        )
+
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "omni-test-key")
+    client = AsyncOmniRouteClient(models=["auto/best-coding"])
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(base_url=client.base_url, transport=httpx.MockTransport(handler))
+    try:
+        chunks = [
+            chunk async for chunk in client.chat_stream(
+                messages=[{"role": "user", "content": "hi"}], model="auto/best-reasoning"
+            )
+        ]
+    finally:
+        await client.close()
+
+    assert chunks == ["complete"]
+
+
+@pytest.mark.asyncio
 async def test_nim_stream_failure_falls_back_before_any_output(monkeypatch: pytest.MonkeyPatch) -> None:
     def primary_handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"error": "NIM unavailable"})
@@ -295,9 +377,7 @@ async def test_nim_stream_failure_falls_back_before_any_output(monkeypatch: pyte
         assert json.loads(request.content)["stream"] is True
         return httpx.Response(
             200,
-            text='data: {"choices":[{"delta":{"content":"fallback"}}]}\n\n'
-            'data: {"choices":[{"delta":{"content":" stream"}}]}\n\n'
-            "data: [DONE]\n\n",
+            json={"choices": [{"message": {"content": "fallback stream"}}]},
         )
 
     client = await make_failover_client(monkeypatch, httpx.MockTransport(primary_handler), httpx.MockTransport(fallback_handler))
@@ -306,4 +386,4 @@ async def test_nim_stream_failure_falls_back_before_any_output(monkeypatch: pyte
     finally:
         await client.close()
 
-    assert chunks == ["fallback", " stream"]
+    assert chunks == ["fallback stream"]

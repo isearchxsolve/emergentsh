@@ -77,6 +77,27 @@ level of metallic depth, luminous glass, interaction polish, and accessibility.
 """.strip()
 
 
+# Generated projects always place the FastAPI application at backend/main.py.
+# Test modules are model-authored and may otherwise use an ambiguous bare
+# ``import main``; on a host running NeonBuild, that can resolve to the
+# platform's main.py instead of the generated application. This bootstrap
+# makes both import styles deterministic while backend.main remains the public
+# project contract.
+GENERATED_TEST_BOOTSTRAP = """from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+BACKEND = ROOT / "backend"
+
+# Prepend in this exact order: `from backend.main import app` resolves through
+# ROOT, and legacy `import main` resolves to the generated backend.
+for candidate in (str(ROOT), str(BACKEND)):
+    while candidate in sys.path:
+        sys.path.remove(candidate)
+sys.path[:0] = [str(BACKEND), str(ROOT)]
+"""
+
+
 # A malformed designer response must not terminate an otherwise valid build.
 # These deterministic tokens are the platform quality floor; model output can
 # override them, but missing categories are always completed here.
@@ -525,6 +546,13 @@ def validate_qa_contract(tests: str) -> List[str]:
         violations.append("health/readiness smoke test is missing")
     if not re.search(r"client\.(?:post|put|patch|delete)", tests, re.I):
         violations.append("primary mutation journey is not tested")
+    # Generated projects expose their FastAPI application as backend.main.
+    # Bare `main` imports can silently select NeonBuild's own module when a
+    # generated project is verified from within the platform workspace.
+    if re.search(r"^\s*(?:from\s+main\s+import|import\s+main(?:\s|$))", tests, re.M) or re.search(
+        r"import_module\(\s*['\"]main['\"]", tests
+    ):
+        violations.append("tests must import the generated API from backend.main, not ambiguous main")
     return violations
 
 
@@ -540,6 +568,9 @@ def validate_integration_artifacts(artifacts: Dict[str, str]) -> List[str]:
         violations.append("backend dependency lock contract is missing")
     if "frontend/package.json" not in artifacts:
         violations.append("frontend build contract is missing")
+    test_bootstrap = artifacts.get("tests/conftest.py", "")
+    if "BACKEND" not in test_bootstrap or "sys.path" not in test_bootstrap:
+        violations.append("generated API test import bootstrap is missing")
     if "RUN_LOCAL.md" not in artifacts or "no Docker required" not in artifacts["RUN_LOCAL.md"]:
         violations.append("host-native local startup workflow is missing")
     return violations
@@ -881,7 +912,12 @@ class FrontendAgent(BaseAgent):
         
         error_context = ""
         if ctx.errors and "Frontend validation" in ctx.errors[-1]:
-            error_context = f"\n\nPREVIOUS ERROR TO FIX:\n{ctx.errors[-1]}"
+            previous_attempt = ctx.artifacts.get("_frontend_last_attempt.tsx", "")
+            error_context = (
+                f"\n\nPREVIOUS ERROR TO FIX:\n{ctx.errors[-1]}\n\n"
+                "PREVIOUS INVALID FRONTEND OUTPUT (replace it completely with runnable App.tsx):\n"
+                f"{previous_attempt[:12000]}"
+            )
 
         if ctx.target == "flutter":
             request = (
@@ -899,6 +935,11 @@ class FrontendAgent(BaseAgent):
             )
         else:
             request = (
+                "DELIVERY ENVELOPE (non-negotiable): return one complete, compact App.tsx in this "
+                "single response. Do not split it into parts, promise a later message, explain size "
+                "limits, use Markdown fences, or omit any required behavior. Keep the source below "
+                "350 TypeScript lines by using focused components and shared helpers; concise code is "
+                "preferred to a partial implementation.\n\n"
                 "Build the complete React frontend as one self-contained App.tsx. Use fetch with "
                 "const API_BASE = import.meta.env.VITE_API_URL || '/api/v1'. Implement at least "
                 "one real GET and one real POST/PATCH/DELETE in the primary user journey. Do not "
@@ -910,13 +951,21 @@ class FrontendAgent(BaseAgent):
         code = await self._call_nim(
             user_message=(
                 f"{request}\n\nPLAN:\n{plan}\n\n"
-                f"DESIGN TOKENS:\n{design}\n\nVISUAL QUALITY BASELINE:\n"
-                f"{DEFAULT_VISUAL_QUALITY_BASELINE}{error_context}"
+                f"DESIGN TOKENS:\n{design}\n\n"
+                "VISUAL DELIVERY: implement a premium Aurora Metal interface with deep metallic "
+                "glass surfaces, emerald energy and restrained fuchsia focus accents, deliberate "
+                "type hierarchy, responsive 390px-to-desktop layout, accessible focus states, and "
+                "purposeful subtle motion. Avoid generic cards and placeholder copy."
+                f"{error_context}"
             ),
             temperature=0.2,
-            max_tokens=6000,
+            max_tokens=4800,
         )
         code = unwrap_generated_code(code)
+        # Keep an invalid response in transient pipeline context so a retry can
+        # correct the actual attempted source. It is intentionally not written
+        # to the generated project until it passes the structural contract.
+        ctx.artifacts["_frontend_last_attempt.tsx"] = code
         
         if ctx.target == "flutter":
             if "GeneratedApp" not in code or "MaterialApp" not in code or "Widget" not in code:
@@ -939,6 +988,7 @@ class FrontendAgent(BaseAgent):
               raise ValueError("Frontend validation failed: design tokens not structurally applied -- " + "; ".join(violations))
           artifact_name = "frontend/App.tsx"
 
+        ctx.artifacts.pop("_frontend_last_attempt.tsx", None)
         ctx.set_artifact(artifact_name, code)
         for name, content in scaffold_for(ctx.target, "NeonBuild App").items():
             if name != artifact_name:
@@ -1066,7 +1116,7 @@ class IntegrationAgent(BaseAgent):
         # files below are optional deployment conveniences only.
         ctx.set_artifact("backend/requirements.txt", "fastapi>=0.115,<1\nuvicorn[standard]>=0.30,<1\nSQLAlchemy>=2,<3\npydantic[email]>=2,<3\npython-jose[cryptography]>=3.3,<4\npasslib[bcrypt]>=1.7,<2\npython-multipart>=0.0.9,<1\nhttpx>=0.27,<1\npytest>=8,<9\n")
         ctx.set_artifact("backend/__init__.py", "\"\"\"Generated FastAPI application package.\"\"\"\n")
-        ctx.set_artifact("tests/conftest.py", "from pathlib import Path\nimport sys\nROOT = Path(__file__).resolve().parents[1]\nif str(ROOT) not in sys.path:\n    sys.path.insert(0, str(ROOT))\n")
+        ctx.set_artifact("tests/conftest.py", GENERATED_TEST_BOOTSTRAP)
         ctx.set_artifact("RUN_LOCAL.md", "# Run locally (no Docker required)\n\n## Backend\n`python -m pip install -r backend/requirements.txt`\n\n`python -m uvicorn backend.main:app --reload --port 8000`\n\n## Frontend\n`cd frontend`\n\n`npm install`\n\n`npm run dev`\n\nThe Vite development server proxies `/api` to the backend. Copy each `.env.example` before supplying production secrets.\n")
         repair_context = f"\nPREVIOUS INTEGRATION FAILURE TO FIX:\n{ctx.errors[-1]}" if ctx.errors and "Integration validation failed" in ctx.errors[-1] else ""
         
@@ -1188,29 +1238,44 @@ class QAAgent(BaseAgent):
         error_context = ""
         if ctx.errors and "Pytest execution failed" in ctx.errors[-1]:
             error_context = f"\n\nTEST EXECUTION FAILED. FIX THE TESTS OR BACKEND CODE:\n{ctx.errors[-1]}"
-            # A retry must repair the artifact that failed, not merely ask QA
-            # to emit a different test file.  The repaired module is written
-            # back into the shared context before tests are regenerated and
-            # rerun below.
-            repaired_backend = await self._call_nim(
-                user_message=(
-                    "Repair this FastAPI backend after its generated smoke/API tests failed. "
-                    "Return only complete runnable Python code. Preserve the requested "
-                    "product behavior, fix the concrete failure, and keep validation and "
-                    "authorization intact.\n\n"
-                    f"CURRENT BACKEND:\n{backend}\n\n"
-                    f"TEST FAILURE:\n{ctx.errors[-1]}"
-                ),
-                system_prompt=BackendAgent.SYSTEM_PROMPT,
-                temperature=0.1,
-                max_tokens=12000,
+            failure = ctx.errors[-1].lower()
+            test_import_failure = (
+                "module 'main' has no attribute" in failure
+                or "no module named 'main'" in failure
+                or "import_module(\"main\")" in failure
+                or "import_module('main')" in failure
             )
-            backend = unwrap_generated_code(repaired_backend)
-            try:
-                ast.parse(backend)
-            except SyntaxError as exc:
-                raise ValueError(f"Self-healing backend repair is invalid Python: {exc}") from exc
-            ctx.set_artifact("backend/main.py", backend)
+            if test_import_failure:
+                # The application did not run. Regenerate tests with the
+                # canonical package import instead of mutating healthy source.
+                error_context += (
+                    "\n\nPROJECT LAYOUT REQUIREMENT: the FastAPI module is "
+                    "backend/main.py. Import it only as `from backend.main import ...`; "
+                    "never use `import main`, `from main import`, or dynamic import_module('main')."
+                )
+            else:
+                # A retry must repair the artifact that actually failed, not
+                # merely emit a new superficial test file. The repaired module
+                # is written back before tests are regenerated and rerun.
+                repaired_backend = await self._call_nim(
+                    user_message=(
+                        "Repair this FastAPI backend after its generated smoke/API tests failed. "
+                        "Return only complete runnable Python code. Preserve the requested "
+                        "product behavior, fix the concrete failure, and keep validation and "
+                        "authorization intact.\n\n"
+                        f"CURRENT BACKEND:\n{backend}\n\n"
+                        f"TEST FAILURE:\n{ctx.errors[-1]}"
+                    ),
+                    system_prompt=BackendAgent.SYSTEM_PROMPT,
+                    temperature=0.1,
+                    max_tokens=12000,
+                )
+                backend = unwrap_generated_code(repaired_backend)
+                try:
+                    ast.parse(backend)
+                except SyntaxError as exc:
+                    raise ValueError(f"Self-healing backend repair is invalid Python: {exc}") from exc
+                ctx.set_artifact("backend/main.py", backend)
 
         if ctx.errors and "QA validation failed" in ctx.errors[-1]:
             error_context += f"\n\nPREVIOUS QA CONTRACT FAILURE TO FIX:\n{ctx.errors[-1]}"
@@ -1218,7 +1283,9 @@ class QAAgent(BaseAgent):
             user_message=(
                 "Write complete executable pytest tests for this FastAPI backend using FastAPI "
                 "TestClient or httpx. Include at least two tests: health/readiness and a real "
-                "create/read primary journey. Never use assert True, mocks, or placeholder tests.\n\n"
+                "create/read primary journey. Never use assert True, mocks, or placeholder tests. "
+                "The generated application module is backend/main.py: import it only as "
+                "`from backend.main import ...`, never as bare `main`.\n\n"
                 f"BACKEND:\n{backend[:10000]}{error_context}"
             ),
             temperature=0.2,

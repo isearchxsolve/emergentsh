@@ -8,6 +8,7 @@ and are never written to application state or logs.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from typing import Any, AsyncIterator, Dict, List, Optional
@@ -48,13 +49,30 @@ DEFAULT_OMNIROUTE_MODELS = (
 DEFAULT_OMNIROUTE_ROUTES_BY_STAGE = {
     "planner": "auto/best-reasoning",
     "designer": "auto/best-reasoning",
-    "frontend": "auto/best-coding",
+    # The live Gemini lane is a stronger code-artifact producer than the
+    # short-response general coding combo. AsyncOmniRouteClient still falls
+    # through to the configured auto routes if this provider is unavailable.
+    "frontend": "gemini/gemini-3.6-flash",
     "backend": "auto/best-coding",
     "integration": "auto/best-coding",
     "preview": "auto/best-coding",
     "qa": "auto/best-coding",
     "devops": "auto/best-coding",
 }
+
+
+def _omniroute_streaming_enabled() -> bool:
+    """Return whether the gateway should use token-event streaming.
+
+    OmniRoute's streaming responses contain reliable terminal completion
+    events, and stopping at that event preserves complete content while
+    avoiding providers that leave the HTTP connection open afterwards. The
+    non-streaming mode remains available for gateways that only expose JSON
+    completions by setting OMNIROUTE_STREAMING_ENABLED=false.
+    """
+    return os.getenv("OMNIROUTE_STREAMING_ENABLED", "true").strip().lower() in {
+        "true", "1", "yes", "on"
+    }
 
 
 def _configured_omniroute_models() -> List[str]:
@@ -162,13 +180,19 @@ class AsyncOmniRouteClient:
         route_errors: List[str] = []
         for candidate in candidates:
             try:
-                response = await self._client.post("chat/completions", json={
-                    "model": candidate,
-                    "messages": messages,
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                    "stream": stream,
-                })
+                # httpx's read timeout is deliberately reset by every byte
+                # received. A gateway can therefore keep a response alive
+                # forever with heartbeats or partial data. The agent contract
+                # is a real *total* per-completion deadline, so enforce it
+                # independently of transport-level read timeouts.
+                async with asyncio.timeout(self.timeout):
+                    response = await self._client.post("chat/completions", json={
+                        "model": candidate,
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                        "stream": stream,
+                    })
                 response.raise_for_status()
                 body = response.json()
                 content = ((body.get("choices") or [{}])[0].get("message") or {}).get("content")
@@ -190,6 +214,23 @@ class AsyncOmniRouteClient:
         temperature: float = 0.4,
         max_tokens: int = 4096,
     ) -> AsyncIterator[str]:
+        # Pipeline stages are batch operations: validation waits for a complete
+        # answer, but OmniRoute's terminal SSE event lets us capture that answer
+        # without waiting for a provider to close a lingering connection.
+        if not _omniroute_streaming_enabled():
+            body = await self.chat_completion(
+                messages=messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=False,
+            )
+            content = ((body.get("choices") or [{}])[0].get("message") or {}).get("content")
+            if not content:
+                raise RuntimeError("OmniRoute returned no generated content for batch completion.")
+            yield content
+            return
+
         self._ensure_circuit_closed()
         candidates = self._candidate_routes(model)
         last_error: Optional[Exception] = None
@@ -197,45 +238,58 @@ class AsyncOmniRouteClient:
         for candidate in candidates:
             emitted = False
             try:
-                async with self._client.stream("POST", "chat/completions", json={
-                    "model": candidate,
-                    "messages": messages,
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                    "stream": True,
-                }) as response:
-                    response.raise_for_status()
-                    # Some OmniRoute composite policies intentionally return a
-                    # complete OpenAI JSON payload even when stream=true. That
-                    # is still a valid completion; surface it as one delta
-                    # instead of falsely marking the route as empty and
-                    # failing an otherwise healthy pipeline stage.
-                    content_type = response.headers.get("content-type", "").lower()
-                    if "application/json" in content_type:
-                        import json
-                        body = json.loads((await response.aread()).decode("utf-8"))
-                        content = ((body.get("choices") or [{}])[0].get("message") or {}).get("content")
-                        if content:
-                            emitted = True
-                            yield content
-                            self._record_success()
-                            return
-                        raise RuntimeError(f"OmniRoute model {candidate} returned no generated content.")
-                    async for line in response.aiter_lines():
-                        if not line or not line.startswith("data:"):
-                            continue
-                        data = line[5:].strip()
-                        if data == "[DONE]":
-                            if emitted:
+                # Apply the same wall-clock completion budget as batch mode.
+                # HTTPX's read timeout alone resets whenever a heartbeat or
+                # partial token arrives and cannot enforce this guarantee.
+                async with asyncio.timeout(self.timeout):
+                    async with self._client.stream("POST", "chat/completions", json={
+                        "model": candidate,
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                        "stream": True,
+                    }) as response:
+                        response.raise_for_status()
+                        # Some OmniRoute composite policies intentionally return a
+                        # complete OpenAI JSON payload even when stream=true. That
+                        # is still a valid completion; surface it as one delta
+                        # instead of falsely marking the route as empty and
+                        # failing an otherwise healthy pipeline stage.
+                        content_type = response.headers.get("content-type", "").lower()
+                        if "application/json" in content_type:
+                            import json
+                            body = json.loads((await response.aread()).decode("utf-8"))
+                            content = ((body.get("choices") or [{}])[0].get("message") or {}).get("content")
+                            if content:
+                                emitted = True
+                                yield content
                                 self._record_success()
                                 return
                             raise RuntimeError(f"OmniRoute model {candidate} returned no generated content.")
-                        import json
-                        chunk = json.loads(data)
-                        delta = ((chunk.get("choices") or [{}])[0].get("delta") or {}).get("content")
-                        if delta:
-                            emitted = True
-                            yield delta
+                        async for line in response.aiter_lines():
+                            if not line or not line.startswith("data:"):
+                                continue
+                            data = line[5:].strip()
+                            if data == "[DONE]":
+                                if emitted:
+                                    self._record_success()
+                                    return
+                                raise RuntimeError(f"OmniRoute model {candidate} returned no generated content.")
+                            import json
+                            chunk = json.loads(data)
+                            choice = (chunk.get("choices") or [{}])[0]
+                            delta = (choice.get("delta") or {}).get("content")
+                            if delta:
+                                emitted = True
+                                yield delta
+                            # A number of providers send finish_reason but do
+                            # not send [DONE] or close promptly. Completion is
+                            # authoritative, so do not keep the stage waiting.
+                            if choice.get("finish_reason"):
+                                if emitted:
+                                    self._record_success()
+                                    return
+                                raise RuntimeError(f"OmniRoute model {candidate} returned no generated content.")
                 if emitted:
                     self._record_success()
                     return
