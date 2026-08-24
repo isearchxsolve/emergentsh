@@ -1,338 +1,129 @@
-# NeonBuild and OmniRoute health, root-cause, and remediation report
-
-**Report date:** 2026-08-24  
-**Scope:** NeonBuild live generation path, OmniRoute runtime, provider credentials, fallback routes, and local development health.  
-**Docker:** deliberately excluded.
-
-> **⚠️ CORRECTED / SUPERSEDED — 2026-08-24 (same day).** The "Executive conclusion" and provider
-> audit below were **wrong**. They were produced by probing **through** OmniRoute's `:20130`
-> dashboard (which genuinely has broken crypto) and reading the gateway's stale status as ground
-> truth. Re-testing the stored keys **directly** (curl to each provider) and routing **through the
-> canonical `:20128` gateway** disproved every headline claim: the keys are LIVE, decryption works,
-> and live generation runs today at $0. The verified correction is below; the original investigation
-> is retained unchanged beneath it as a record of what was first believed and why it was wrong.
-> Authoritative corrected verdict: `omniroute-monetizer/OMNIROUTE_LIVE_VERDICT_2026-08-24.md`.
-
-## Corrected conclusion (verified 2026-08-24) — supersedes everything below
-
-**The stored provider keys are LIVE. OmniRoute works. Live generation runs through it today, $0.**
-NeonBuild's live-inference path is **not** blocked.
-
-- **Right port is `:20128`, not `:20130`.** `:20128` (PID 28168, v3.8.49) is the canonical healthy
-  gateway — it decrypts the store and generates. `:20130` is only the dashboard/WebSocket front-end
-  and its crypto *is* broken; probing it (as the original report did) is exactly what produced the
-  false `401` / `cryptography.status=missing_or_invalid` signal. NeonBuild's client
-  (`backend/app/services/nim_client.py`) already defaults to `:20128` — no repoint needed.
-- **Root cause was a stale `test_status`, not dead keys or broken crypto.** OmniRoute routes a
-  connection only if its last health-check verdict (`test_status`) is usable. Live-key providers
-  carried a *stale negative* verdict from an old check, and the credential/token health sweeps are
-  deliberately disabled (they block the Node event loop ~37s and crash the watchdog — see
-  MASTER_WORKLOG #21/#22), so the stale verdict never self-heals. The router therefore returned
-  `No active credentials for provider: X` for keys that are actually valid.
-- **Fix applied (no restart needed):** setting `test_status='active'` (and clearing
-  `error_code`/`last_error*`, `backoff_level=0`, `rate_limited_until=NULL`) in `provider_connections`
-  reactivates a provider immediately — the gateway re-reads `test_status` **per request**.
-- **Verified now — 6 providers generate through the gateway:** gemini (`gemini-flash-latest`),
-  mistral (`codestral-2508`), groq (`openai/gpt-oss-20b`), cohere (`command-a-03-2025`), alibaba
-  (`qwen-max`), morph (`morph-v3-fast`). **3 more keys authenticate but are unfunded** (genuine
-  upstream billing, not a key fault): cerebras/deepinfra `402`, arcee-ai `404+credits`, nscale `429`.
-- **Both combos pass end-to-end** through `:20128`: `auto/best-coding` → codestral, real code,
-  ~1.2s; `auto/best-reasoning` → qwen-max, ~5.7s (gemini rate-limited → priority failover engaged).
-- **The `neon` gateway key is valid** — it returns HTTP 200 with real content on `:20128`. The
-  original `401` came from hitting `:20130`.
-
-### What the original report got wrong
-
-| Original claim | Verified reality |
-|---|---|
-| Live generation blocked by OmniRoute | Not blocked — 6 providers generate; both combos return real content |
-| `cryptography.status = missing_or_invalid` blocks decryption | Only the `:20130` dashboard has bad crypto; the `:20128` gateway decrypts + generates fine |
-| Confirmed healthy providers now: **0** | **≥6** generate; ≥3 more keys valid but unfunded |
-| Gateway key rejected (401) | Returns **HTTP 200** on `:20128`; the 401 was from probing `:20130` |
-| Provider audit: every key returned 401 / expired / invalid | Those were gateway-side stale-`test_status` errors; direct curl proved the keys live |
-| `:20128` is the old/unresponsive process; use `:20130` | Backwards — `:20128` is the canonical healthy gateway; `:20130` is the front-end |
-| Phase B: ensure **one** `STORAGE_ENCRYPTION_KEY` line | There are two; the **second** line is authoritative (decrypts via the legacy salt). Do **not** edit these lines blind — the process may take the key from the NSSM service env, so a wrong guess = total decryption outage on restart |
-| Phase D: reauth NVIDIA/Codex/Antigravity/Copilot first | Those are dead ends; the live path is gemini/mistral/groq/cohere/alibaba/morph, already reactivated |
-
-Note on the health-check recommendation: re-enabling the credential/token sweeps to "self-heal"
-`test_status` was deliberately **not** done — it reintroduces the ~37s event-loop stalls and
-watchdog crashes above. Real request failures already keep `test_status` honest in real time.
-
----
-
-> **The remainder of this document is the ORIGINAL 2026-08-24 investigation, retained unchanged as a
-> record. Its conclusions were disproven — see the correction above.**
-
-## Executive conclusion (original — SUPERSEDED)
-
-NeonBuild's implementation is healthy at the application level, but live AI generation is currently blocked by OmniRoute.
-
-The failure is not simply that every upstream provider independently expired. The active OmniRoute runtime reports that its credential cryptography is unavailable:
-
-```text
-cryptography.status = missing_or_invalid
-cryptography.provider = aes-256-gcm
-```
+# NeonBuild / OmniRoute Live Semantic Preflight Report
 
-That prevents reliable decryption and use of the stored provider credentials. The dashboard can still display stored provider records, model catalogues, and old status badges, but real completion requests fail.
-
-There is also a multi-process/split-brain configuration risk: an old OmniRoute listener occupies port 20128 while the clean dashboard/runtime is on port 20130. The active port-20130 process itself advertises `OMNIROUTE_BASE_URL=http://localhost:20128/v1`.
+**Revision:** 2 — evidence-aligned final update
 
-**Current production conclusion:**
+**Date:** 2026-08-24
 
-| Area | Status |
-|---|---|
-| NeonBuild backend code and tests | Healthy |
-| NeonBuild frontend production build | Healthy |
-| NeonBuild UI server | Healthy |
-| NeonBuild live inference readiness | Blocked by OmniRoute |
-| OmniRoute process/control plane | Running |
-| OmniRoute credential decryption/data plane | Unhealthy |
-| Confirmed healthy text-generation providers now | 0 |
-| Historically proven provider today | NVIDIA NIM, currently disabled |
+**Scope:** NeonBuild's real, non-mock generated-application pipeline through the local OmniRoute pathway
 
-## Evidence collected
+**Overall status:** **COMBO_CHAIN_BLOCKED**
 
-### NeonBuild health
+**Browser generated-app E2E:** **NOT AUTHORIZED TO RUN YET**
 
-The running backend returns HTTP 200 from `/health`:
+## Executive verdict
 
-```json
-{
-  "status": "healthy",
-  "inference_provider": "omniroute",
-  "inference_configured": true
-}
-```
+NeonBuild's local pipeline implementation is materially stronger than the prior baseline: generated-project QA import isolation, frontend retry context, OmniRoute streaming handling, long phase timeouts, and provider route selection were corrected and committed. The relevant Python suites pass.
 
-The running process uses:
+That does **not** establish production readiness for real generated applications. The strict live OmniRoute *normal-combo* chain has not yet completed with a semantically valid artifact at every stage. A transport-level HTTP `200`, a provider dashboard "connected" label, or NeonBuild's `/health` response is insufficient evidence: every model response must satisfy the contract of the pipeline stage that received it.
 
-```text
-INFERENCE_PROVIDER=omniroute
-INFERENCE_STRICT_MODE=true
-OMNIROUTE_BASE_URL=http://127.0.0.1:20130/v1
-OMNIROUTE_TIMEOUT_SECONDS=600
-```
+Therefore, the following remains deliberately gated:
 
-Validation completed on 2026-08-24:
+- browser E2E of a live generated application;
+- a claim that the generated application is production-ready;
+- a claim that OmniRoute fallback/routing is healthy as an end-to-end combo chain.
 
-```text
-python -m pytest backend/tests -q  -> 50 passed
-python -m pytest tests -q          -> 139 passed, 1 skipped
-npm run build                       -> completed successfully
-```
+## Exact preflight standard used
 
-The Next.js build produced static routes for `/`, `/workspace`, and `/_not-found`. The frontend is serving on port 3006.
+This is the required preflight, in order. It is intentionally stage-by-stage before any end-to-end browser claim.
 
-### Exact live NeonBuild-to-OmniRoute probe
+| Gate | Required evidence | Current result |
+| --- | --- | --- |
+| 0. Live route reachability | OmniRoute configured at NeonBuild's local OpenAI-compatible endpoint; no mock provider | **Pass (transport/config only)** |
+| 1. Planner | A real plan that parses and contains the required product requirements | **Observed passing in recorded jobs** |
+| 2. Designer | Complete design tokens and required visual contract categories | **Observed passing in recorded jobs** |
+| 3. Frontend | A single valid `App.tsx` response with runnable React component, product UI, and API-client contract | **Failing / not yet revalidated after latest routing change** |
+| 4. Backend | Runnable API, validation, persistence/auth contract as required by the generated product | **Not authorized until frontend gate passes** |
+| 5. Integration | Frontend/backend agreement, environment wiring, and deterministic repair where needed | **Not reached in a fully healthy live run** |
+| 6. Preview | Faithful executable preview; no false-success mock fallback | **Not reached in a fully healthy live run** |
+| 7. QA | Generated backend tests, frontend build, API smoke checks, and generated browser tests pass | **Earlier run exposed an import-layout defect; code fix committed; must be re-run live** |
+| 8. DevOps | Deployable host-native web/mobile artifacts and configuration | **Not reached** |
+| 9. Host-native generated-app run | The actual generated application starts and serves its API/preview without Docker | **Not reached** |
+| 10. Browser E2E | Browser validates the real generated preview, primary flow, errors, and responsive UI | **Blocked by gates 3–9** |
 
-Using the running backend process environment in memory, without exposing the gateway key, the following request was made:
+### Required execution constraints
 
-```text
-POST http://127.0.0.1:20130/v1/chat/completions
-model: auto/best-coding
-max_tokens: 8
-```
+- `use_mock=false`; no synthetic success may count as a live result.
+- OmniRoute is the provider path; it must use its normal routing/fallback policy rather than a single hard-coded NVIDIA key.
+- Each node/phase has a **600-second** total upstream budget; a 120-second cutoff is not suitable for real app-generation work.
+- Generated artifacts must be isolated in their project directory. No Docker is used on this machine (`SANDBOX_ISOLATION=host`).
+- Event updates must stay visible to the user throughout the run, but status messages are not proof of artifact validity.
+- A retry only passes when its returned artifact passes the node's validator; a second failure must remain diagnosable from persisted events.
 
-Result:
+## Recorded live evidence
 
-```text
-HTTP 401
-The API Key appears to be invalid or may have expired.
-```
+The following job records are evidence from the real, non-mock path. They are not treated as successful E2E runs.
 
-The gateway key is present in the NeonBuild process. It also matches the active on-disk OmniRoute API-key record named `neon`, which has no recorded revocation or expiry. The live OmniRoute runtime nevertheless rejects it. This proves that the active runtime and the expected on-disk credential state are not operating in the same effective context.
+| Job | Furthest verified point | Failure / finding | Interpretation |
+| --- | --- | --- | --- |
+| `609965db4299` | Planner → Designer → Frontend → Backend → Integration → Preview | QA loaded the host/root `main.py` because the generated test used a bare `main` import, then failed with a missing `Base` attribute | A generated-project QA import-isolation defect, now addressed in source; requires live regression |
+| `c694405d07af` | Planner → Designer | Frontend retries produced a static/non-component/non-API artifact rejected by the strict frontend validator | Correct rejection; semantic generation failure, not a UI success |
+| `44392e8f10b1` | Planner → Designer | Frontend response was a ChatGPT Web refusal/non-code response and failed after retries | Correct rejection; provider transport availability did not yield a usable artifact |
 
-### OmniRoute control-plane health
+An isolated Gemini frontend-route request was also observed to return HTTP `200` with approximately 4,796 output tokens in about 47 seconds. The invoking process did not remain attached long enough to capture and validate the full returned `App.tsx`. This is **promising provider telemetry, not a successful frontend gate**.
 
-The active clean runtime at port 20130 responds to:
+## Provider and routing findings
 
-```text
-/api/monitoring/health -> HTTP 200
-version                -> 3.7.1
-configured providers   -> 98
-active providers       -> 82
-monitored providers    -> 22
-```
+The issue is not simply "NVIDIA down". The normal-combo system must tolerate a provider being unavailable, but its alternatives must also generate valid stage-specific output.
 
-The same response reports:
+| Path / provider observation | Latest measured behaviour | Effect on live combo health | Required remediation |
+| --- | --- | --- | --- |
+| NVIDIA NIM through OmniRoute | Account/credit/cooldown state was unavailable in the observed logs | Route is skipped or cannot contribute capacity | Restore account capacity separately; keep it optional in the combo, not a single point of failure |
+| Alibaba/Qwen route | Observed HTTP `400`; associated connection state was stale/expired | Not a reliable fallback | Re-authenticate/repair provider configuration and re-probe with a minimal structured generation request |
+| ChatGPT Web route | Transport was reachable, but frontend requests produced refusal/non-code content | Semantically unhealthy for the Frontend node | Restrict it to compatible stages or improve route/prompt/response handling; a `200` must not be promoted to success |
+| Gemini route | Long response observed on the selected frontend route | Candidate fallback, but artifact not yet captured and structurally validated | Run the exact Frontend-node probe with full 600-second capture and strict validation, then include it in a complete combo run |
+| LLM7 route | Observed expired authorization / HTTP `401` | Not usable until re-authenticated | Repair authorization, verify a minimal completion, then restore only after semantic probe passes |
 
-```text
-cryptography.status = missing_or_invalid
-```
+### Root-cause analysis
 
-It also reports failed local providers with `fetch failed`, HTTP 404, or 5xx-style errors.
+1. **Credential/entitlement drift exists on more than one provider.** At least one provider was unavailable for account/cooldown reasons and other connections showed expired or malformed/stale configuration. This lowers fallback capacity.
+2. **Transport success was previously too easy to overinterpret.** A connection can return HTTP `200` yet give a refusal, prose, truncated code, or a static scaffold. The former process lacked enough semantic evidence before declaring a route healthy.
+3. **The frontend artifact is the present bottleneck.** Planner and Designer contracts passed in the recorded runs; the Frontend node correctly rejected non-runnable output. The strict validator is doing its job, but a capable route needs to be proven under the actual full prompt envelope.
+4. **A separate QA layout defect was uncovered, not hidden.** Generated tests importing bare `main` could resolve to a host module rather than the generated backend. That was a harness defect, distinct from the provider issue, and source-level protections were added.
+5. **Earlier short caller windows obscured long generation completion.** Node budgets are now ten minutes, but every invoking/testing process must also remain attached long enough to collect and validate the response.
 
-## Root-cause analysis
+## Remediations implemented in NeonBuild
 
-### 1. Storage encryption is not valid in the active runtime
+These changes are committed in `4ef4ddd8474c9b4badaea97668a8ee4f9821ca63` (`fix: harden OmniRoute pipeline generation and QA`):
 
-The active port-20130 Node process does not have `STORAGE_ENCRYPTION_KEY` in its environment. The local OmniRoute `.env` file contains two `STORAGE_ENCRYPTION_KEY` entries. The process-level omission, duplicate file entries, and monitoring result `missing_or_invalid` establish that the runtime is not loading a valid, unambiguous key for the encrypted credential store.
+- QA bootstrap now targets generated `backend/main.py` explicitly and rejects ambiguous bare/dynamic `main` imports.
+- QA repair distinguishes an import-layout failure from a genuine generated-backend failure.
+- Frontend retry attempts retain the invalid artifact context for the next repair prompt.
+- Frontend delivery is constrained to one compact `App.tsx` response envelope, reducing partial/multi-message artifacts.
+- OmniRoute streaming is enabled by default, stops correctly on terminal stream markers, and honours a 600-second total deadline.
+- The selected Gemini frontend route was updated, while keeping automatic/fallback route options available through OmniRoute.
+- Pipeline jobs and append-only events are durable. SSE clients replay events by database ID, and worker leases support replica recovery; these are code-level deployment protections, separate from the live semantic generation gate.
+- Production schema changes use Alembic. `create_all` is an explicit opt-in compatibility path for disposable local/test databases, not the production migration mechanism.
 
-Consequences:
+## Verification already completed
 
-- provider records may be visible but their secrets cannot be used reliably;
-- OAuth refresh cannot complete reliably because refresh tokens are encrypted;
-- API-key providers return authentication errors;
-- dashboard badges are stale metadata rather than proof of completion capability;
-- a gateway API key may exist in SQLite but be rejected by the running gateway.
+| Verification | Result |
+| --- | --- |
+| `backend/tests/test_agent_pipeline.py` | **31 passed** |
+| `backend/tests/test_nim_client.py -vv` | **16 passed** |
+| `backend/tests/test_mobile_targets.py` | **9 passed** |
+| Combined recorded Python evidence | **56 passed** (Pydantic warnings only) |
+| Local backend health after restart on port 8005 | `healthy`; inference configured for OmniRoute — configuration/reachability evidence only |
+| Fresh frontend build invoked during final review | Compilation completed and reached type/lint validation; the caller window ended before a final clean completion line, so this report does **not** claim a fresh build pass |
 
-### 2. Keep-alive/token refresh is not a universal credential repair mechanism
+## What must happen next — in strict order
 
-Historical OmniRoute logs show that the health service did run. It previously refreshed Google, Kimi Coding, Kiro AWS, Cline, and other OAuth tokens. The logs also explicitly show:
+1. Repair/re-authenticate any OmniRoute connection that fails a minimal real completion probe, without recording credentials in repository files or logs.
+2. Capture a complete 600-second, exact Frontend-node response using the selected Gemini candidate route; validate it as an `App.tsx` artifact rather than trusting HTTP status.
+3. Run the whole normal-combo pipeline with `use_mock=false`. Every stage must persist its real output and pass its own validator.
+4. Start the actual generated app on the host; verify real API calls, persistence behavior, validation/error flows, and no mock-only UI.
+5. Run generated backend tests, frontend production build, API smoke tests, and browser E2E against the generated preview.
+6. Only after steps 1–5 pass, record an E2E success and update release readiness. If any stage fails, retain the artifact/event evidence, repair the specific stage or route, and repeat from the affected gate.
 
-```text
-No valid refresh token available for provider: github
-No valid refresh token available for provider: kilocode
-```
+## Remaining independent production gaps
 
-The service can refresh an OAuth token only if a decryptable, valid refresh token exists and the provider still accepts it. It cannot generate a new API key, restore a revoked key, recover a provider without a refresh token, clear a quota exhaustion, or fix the gateway's own API-key/encryption context.
+These are outside the OmniRoute semantic-health blocker and remain intentionally visible:
 
-### 3. Multiple OmniRoute instances create an operational split brain
+- Purchases return HTTP `503` until a real payment provider is integrated.
+- The legacy `D:\god_ai\emergentsh` worktree remains intentionally untouched; its old staged-deletion/untracked-replacement recovery is not part of the authoritative standalone repository.
+- Mobile targets have source/build-readiness contracts, but store signing, provisioning, and a macOS/Xcode or Android-SDK build are deployment-environment acceptance evidence, not proof produced by this Windows host-only run.
 
-Observed listeners:
+## Release statement
 
-```text
-20128 -> older Node process, HTTP requests time out
-20130 -> clean OmniRoute runtime/dashboard, responsive
-20131 -> older Node process
-20132 -> older Node process
-```
+**Do not describe NeonBuild as fully production-ready or claim a real generated-app browser E2E pass at this time.** The local harness and regression coverage are improved, and the correct preflight is now explicit; however, the required healthy live OmniRoute normal-combo generation run remains the release gate.
 
-NeonBuild itself is explicitly configured for port 20130, so it is not directly falling back to 20128. However, the port-20130 runtime advertises `OMNIROUTE_BASE_URL=http://localhost:20128/v1`. The old 20128 process is unresponsive. This makes the control-plane/data-plane topology ambiguous and must be removed before a reliable recovery can be claimed.
-
-### 4. NeonBuild has a readiness-observability gap
-
-NeonBuild's `/health` endpoint currently treats the existence of `OMNIROUTE_API_KEY` as evidence that inference is configured. It therefore reports healthy even though an actual completion returns HTTP 401. This does not create the provider failures, but it hides the failure from users and operators.
-
-## Provider audit
-
-The following results are based on actual completion attempts where the provider exposed a testable model. A green dashboard badge is not accepted as a health result.
-
-| Provider | Direct result | Current verdict |
-|---|---|---|
-| NVIDIA NIM | 49 successful calls earlier today; latest failure 403; connection now disabled | Historically strongest, but unavailable now |
-| GitHub Copilot | Unsupported stale aliases; `gpt-4.1` returned 402 monthly quota exhausted; refresh state also problematic | Unavailable |
-| OpenAI Codex | `gpt-5.6-sol` returned 401 | OAuth reauthentication required |
-| Antigravity | Direct fallback requests returned 401 | OAuth reauthentication required |
-| Kimi Coding | `kimi-coding-default` returned 401 | Unavailable |
-| Kiro | `claude-opus-4.7` returned 403 invalid bearer token | Unavailable |
-| OpenRouter | Direct calls returned 401 missing authentication header | Credential/routing attachment broken |
-| Fireworks | `kimi-k2p6` returned 401 invalid API key | Unavailable |
-| Cohere | Tested models returned 401 invalid API key | Unavailable |
-| Gemini AI Studio | `gemini-2.5-flash` returned 400 invalid API key | Unavailable |
-| Alibaba/DashScope | `qwen-max` returned 401 | Unavailable |
-| nScale | `QwQ-32B` returned 401 invalid/expired token | Unavailable |
-| PublicAI | Tested model returned 401 | Unavailable |
-| Morph | Tested model returned 401 | Unavailable |
-| Maritalk | `sabia-3` returned 401 | Unavailable |
-| Bytez | Tested model returned 401 | Unavailable |
-| Groq | `llama-3.3-70b-versatile` returned 401 | Unavailable |
-| Mistral | `codestral-2508` returned 401 | Unavailable |
-| Local engines | LM Studio, vLLM, compatible engines, Triton, and others report fetch/404/5xx failures | Unavailable |
-| ComfyUI | Connected but image-oriented | Not a text-generation fallback |
-
-Providers with a connection record but no successful direct completion must be treated as **unverified**, not healthy. This includes several gateway and web-provider records such as AgentRouter, Amazon Q, Reka, Vertex AI, Cloudflare Workers AI, AI/ML API, Novita, Nous Research, and Perplexity Web.
-
-## Recommended remediation plan
-
-### Phase A: preserve and normalize the runtime
-
-1. Preserve the existing backup:
-
-   `C:\Users\Admin\.omniroute\reauth-backups\20260824-091743`
-
-2. Identify the old port-20128 process by PID and command line.
-3. Stop only the verified stale OmniRoute process after confirming it is not the canonical production process.
-4. Choose one canonical OmniRoute instance and port. Use port 20130 or a new documented port, but not both 20128 and 20130 simultaneously.
-5. Start the canonical runtime with an explicit environment file and deterministic working directory.
-
-### Phase B: restore encrypted credential access
-
-1. Ensure there is **one** `STORAGE_ENCRYPTION_KEY` line in `C:\Users\Admin\.omniroute\.env`.
-2. Use the original key that encrypted the current database. Do not rotate it until existing credentials are intentionally migrated or re-entered.
-3. Ensure the canonical process inherits that key.
-4. Verify the monitoring acceptance condition:
-
-   ```text
-   /api/monitoring/health
-   cryptography.status = healthy
-   ```
-
-5. Do not use credential-reset commands that erase encrypted columns unless intentionally discarding the provider store.
-
-### Phase C: reissue and verify the NeonBuild gateway key
-
-1. In the same canonical OmniRoute runtime, create or reissue a gateway endpoint key for NeonBuild.
-2. Update only the NeonBuild backend process environment with that key.
-3. Restart the backend.
-4. Run a tiny authenticated completion against `auto/best-coding`.
-5. Require HTTP 200 before changing the production fallback chains.
-
-### Phase D: repair providers in priority order
-
-Recommended restoration order:
-
-1. NVIDIA NIM
-2. OpenAI Codex
-3. Antigravity
-4. Kimi Coding
-5. Kiro
-6. GitHub Copilot
-7. OpenRouter
-8. Fireworks
-9. Cohere
-10. Gemini
-11. Alibaba
-12. Groq
-13. Mistral
-
-OAuth providers without a valid refresh token need interactive sign-in. API-key providers need their actual current keys replaced; keep-alive cannot generate new API keys.
-
-### Phase E: rebuild provider routes only from proof
-
-For every candidate model, require:
-
-1. model catalogue check;
-2. direct non-stream completion;
-3. streamed completion;
-4. timeout/latency check;
-5. deliberate primary failure and successful fallback.
-
-Only successful models may be inserted into `auto/best-coding` and `auto/best-reasoning`. Remove stale first-priority models from those combos.
-
-### Phase F: make NeonBuild readiness truthful
-
-Split status into:
-
-- `/health`: process, database, and service liveness;
-- `/readiness`: authenticated OmniRoute completion, valid gateway credential, healthy cryptography, at least one healthy primary route, and one fallback route.
-
-NeonBuild must not report inference-ready based only on `bool(OMNIROUTE_API_KEY)`.
-
-## Final acceptance criteria
-
-The recovery is complete only when all of the following pass:
-
-- one canonical OmniRoute listener is active;
-- `cryptography.status` is healthy;
-- NeonBuild's gateway key returns HTTP 200 from the active OmniRoute instance;
-- at least two independent text-generation providers pass a direct completion;
-- `auto/best-coding` and `auto/best-reasoning` each pass real completion tests;
-- a forced primary-provider failure falls back successfully;
-- a fresh NeonBuild full-stack job completes with live providers;
-- generated preview, backend/API smoke tests, and browser E2E pass;
-- NeonBuild readiness reports failure if OmniRoute stops accepting completions.
-
-## Final status
-
-```text
-NeonBuild code/tests/frontend: healthy
-NeonBuild live AI generation: blocked by OmniRoute
-OmniRoute control plane: reachable
-OmniRoute credential decryption: unhealthy
-OmniRoute gateway key: rejected by active runtime
-Confirmed healthy live general-purpose providers: 0
-```
-
-The primary remediation is not a broad provider-by-provider reauth attempt. First restore a single canonical OmniRoute runtime with the correct storage encryption key, then validate the gateway key, then repair only the providers that still fail direct completions.
+This revision supersedes earlier contradictory provider counts, port assertions, and any implication that provider reachability alone proves live generation health. Git history preserves the prior report text for audit.

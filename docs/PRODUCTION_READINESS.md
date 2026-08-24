@@ -1,5 +1,9 @@
 # Production-readiness audit — 2026-08-24
 
+> **Current live-generation gate (2026-08-24, revision 2):** The closed items below are recorded source/harness, workspace-browser, migration, and deployment checks. They do **not** prove that the current real OmniRoute normal-combo chain can generate a semantically valid full-stack application. The authoritative live status and its strict stage-by-stage preflight are in [OMNIROUTE_HEALTH_ROOT_CAUSE_REPORT_2026-08-24.md](OMNIROUTE_HEALTH_ROOT_CAUSE_REPORT_2026-08-24.md): **COMBO_CHAIN_BLOCKED**. In particular, the browser E2E entry below is not a pass for a newly generated app; generated-app browser E2E remains gated until the live semantic preflight passes.
+
+> **Repository scope correction:** This document's `HISTORY_RECOVERY_BLOCKED` section describes the separate legacy `D:\god_ai\emergentsh` worktree. The authoritative standalone repository is `D:\god_ai\emergentsh-standalone-clean`, which has its configured Git remote and must not be confused with that legacy recovery exercise.
+
 ## Closed in this pass
 
 | Area | Result | Evidence |
