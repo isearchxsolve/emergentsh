@@ -85,3 +85,37 @@ test('validation errors are rendered as readable text', async ({ page }) => {
   await expect(page.getByText('Password must contain at least 8 characters')).toBeVisible();
   await expect(page.getByText(/\[object Object\]/)).toHaveCount(0);
 });
+
+test('registration preserves an email and signs in with the same identifier', async ({ page }) => {
+  const email = 'isearch.xsolve@gmail.com';
+  let registrationPayload: Record<string, string> | undefined;
+  let loginIdentifier: string | null = null;
+
+  await page.route('**/api/auth/register', async route => {
+    registrationPayload = route.request().postDataJSON();
+    await route.fulfill({
+      status: 201,
+      json: { id: 'user-email', username: 'isearch_xsolve_gmail_com', email, credits: 10 },
+    });
+  });
+  await page.route('**/api/auth/login', async route => {
+    loginIdentifier = new URLSearchParams(route.request().postData() || '').get('username');
+    await route.fulfill({ json: { access_token: token, token_type: 'bearer' } });
+  });
+  await page.route('**/api/pipeline/credits', async route => {
+    await route.fulfill({ json: { credits: 10 } });
+  });
+
+  await page.goto('/workspace');
+  await page.getByPlaceholder('Username or email').fill(email);
+  await page.getByPlaceholder('Password').fill('valid-password');
+  await page.getByRole('button', { name: 'Create account' }).click();
+
+  await expect(page.getByText('Welcome to NeonBuild')).toBeVisible();
+  expect(registrationPayload).toEqual({
+    email,
+    username: 'isearch_xsolve_gmail_com',
+    password: 'valid-password',
+  });
+  expect(loginIdentifier).toBe(email);
+});

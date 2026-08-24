@@ -171,7 +171,7 @@ export default function WorkspacePage() {
     setAuthBusy(true);
     setAuthError('');
     try {
-      const body = new URLSearchParams({ username: authUsername, password: authPassword });
+      const body = new URLSearchParams({ username: authUsername.trim(), password: authPassword });
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -199,12 +199,18 @@ export default function WorkspacePage() {
     setAuthBusy(true);
     setAuthError('');
     try {
+      const credential = authUsername.trim();
+      const isEmail = credential.includes('@');
+      const email = isEmail ? credential.toLowerCase() : `${credential.toLowerCase()}@example.com`;
+      const generatedUsername = isEmail
+        ? credential.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 100)
+        : credential;
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: `${authUsername.toLowerCase()}@example.com`,
-          username: authUsername,
+          email,
+          username: generatedUsername,
           password: authPassword,
         }),
       });
@@ -213,7 +219,7 @@ export default function WorkspacePage() {
         throw new Error(readableApiError(detail, `Registration failed (${res.status})`));
       }
       // Registration succeeded — now sign in with the same credentials.
-      const body = new URLSearchParams({ username: authUsername, password: authPassword });
+      const body = new URLSearchParams({ username: credential, password: authPassword });
       const loginRes = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -523,7 +529,7 @@ export default function WorkspacePage() {
             <input
               value={authUsername}
               onChange={(e) => setAuthUsername(e.target.value)}
-              placeholder="Username"
+              placeholder="Username or email"
               autoComplete="username"
               className="w-full bg-white/[0.035] border border-white/[0.08] text-white placeholder-slate-600 px-4 py-3.5 rounded-xl focus:outline-none focus:border-cyan-300/40 focus:bg-cyan-300/[0.025] transition"
             />

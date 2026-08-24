@@ -8,7 +8,7 @@ from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 
 from backend.app.core.database import get_db
 from backend.app.models import TokenRevocation, User
@@ -130,7 +130,22 @@ async def get_current_active_user(
 
 
 async def authenticate_user(db: AsyncSession, username: str, password: str) -> Optional[User]:
-    result = await db.execute(select(User).where(User.username == username))
+    """Authenticate with either a username or an email address.
+
+    OAuth2 calls the form field ``username`` even when an application accepts
+    an email identifier. Keep that wire format while supporting both values.
+    Email matching is case-insensitive; username matching retains the existing
+    case-sensitive behavior.
+    """
+    identifier = username.strip()
+    result = await db.execute(
+        select(User).where(
+            or_(
+                User.username == identifier,
+                func.lower(User.email) == identifier.lower(),
+            )
+        )
+    )
     user = result.scalar_one_or_none()
     if not user:
         return None

@@ -182,6 +182,28 @@ async def _register_and_login(client: AsyncClient, email: str, username: str) ->
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
+@pytest.mark.asyncio
+async def test_login_accepts_email_case_insensitively(client_factory):
+    async with client_factory() as client:
+        email = "isearch.xsolve@gmail.com"
+        r = await client.post(
+            "/api/auth/register",
+            json={
+                "email": email,
+                "username": "isearch_xsolve_gmail_com",
+                "password": "strongpass123",
+            },
+        )
+        assert r.status_code == 201, r.text
+
+        r = await client.post(
+            "/api/auth/login",
+            data={"username": email.upper(), "password": "strongpass123"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["access_token"]
+
+
 class TestPipelineRouteAuth:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
