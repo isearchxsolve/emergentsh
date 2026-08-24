@@ -4,7 +4,66 @@
 **Scope:** NeonBuild live generation path, OmniRoute runtime, provider credentials, fallback routes, and local development health.  
 **Docker:** deliberately excluded.
 
-## Executive conclusion
+> **⚠️ CORRECTED / SUPERSEDED — 2026-08-24 (same day).** The "Executive conclusion" and provider
+> audit below were **wrong**. They were produced by probing **through** OmniRoute's `:20130`
+> dashboard (which genuinely has broken crypto) and reading the gateway's stale status as ground
+> truth. Re-testing the stored keys **directly** (curl to each provider) and routing **through the
+> canonical `:20128` gateway** disproved every headline claim: the keys are LIVE, decryption works,
+> and live generation runs today at $0. The verified correction is below; the original investigation
+> is retained unchanged beneath it as a record of what was first believed and why it was wrong.
+> Authoritative corrected verdict: `omniroute-monetizer/OMNIROUTE_LIVE_VERDICT_2026-08-24.md`.
+
+## Corrected conclusion (verified 2026-08-24) — supersedes everything below
+
+**The stored provider keys are LIVE. OmniRoute works. Live generation runs through it today, $0.**
+NeonBuild's live-inference path is **not** blocked.
+
+- **Right port is `:20128`, not `:20130`.** `:20128` (PID 28168, v3.8.49) is the canonical healthy
+  gateway — it decrypts the store and generates. `:20130` is only the dashboard/WebSocket front-end
+  and its crypto *is* broken; probing it (as the original report did) is exactly what produced the
+  false `401` / `cryptography.status=missing_or_invalid` signal. NeonBuild's client
+  (`backend/app/services/nim_client.py`) already defaults to `:20128` — no repoint needed.
+- **Root cause was a stale `test_status`, not dead keys or broken crypto.** OmniRoute routes a
+  connection only if its last health-check verdict (`test_status`) is usable. Live-key providers
+  carried a *stale negative* verdict from an old check, and the credential/token health sweeps are
+  deliberately disabled (they block the Node event loop ~37s and crash the watchdog — see
+  MASTER_WORKLOG #21/#22), so the stale verdict never self-heals. The router therefore returned
+  `No active credentials for provider: X` for keys that are actually valid.
+- **Fix applied (no restart needed):** setting `test_status='active'` (and clearing
+  `error_code`/`last_error*`, `backoff_level=0`, `rate_limited_until=NULL`) in `provider_connections`
+  reactivates a provider immediately — the gateway re-reads `test_status` **per request**.
+- **Verified now — 6 providers generate through the gateway:** gemini (`gemini-flash-latest`),
+  mistral (`codestral-2508`), groq (`openai/gpt-oss-20b`), cohere (`command-a-03-2025`), alibaba
+  (`qwen-max`), morph (`morph-v3-fast`). **3 more keys authenticate but are unfunded** (genuine
+  upstream billing, not a key fault): cerebras/deepinfra `402`, arcee-ai `404+credits`, nscale `429`.
+- **Both combos pass end-to-end** through `:20128`: `auto/best-coding` → codestral, real code,
+  ~1.2s; `auto/best-reasoning` → qwen-max, ~5.7s (gemini rate-limited → priority failover engaged).
+- **The `neon` gateway key is valid** — it returns HTTP 200 with real content on `:20128`. The
+  original `401` came from hitting `:20130`.
+
+### What the original report got wrong
+
+| Original claim | Verified reality |
+|---|---|
+| Live generation blocked by OmniRoute | Not blocked — 6 providers generate; both combos return real content |
+| `cryptography.status = missing_or_invalid` blocks decryption | Only the `:20130` dashboard has bad crypto; the `:20128` gateway decrypts + generates fine |
+| Confirmed healthy providers now: **0** | **≥6** generate; ≥3 more keys valid but unfunded |
+| Gateway key rejected (401) | Returns **HTTP 200** on `:20128`; the 401 was from probing `:20130` |
+| Provider audit: every key returned 401 / expired / invalid | Those were gateway-side stale-`test_status` errors; direct curl proved the keys live |
+| `:20128` is the old/unresponsive process; use `:20130` | Backwards — `:20128` is the canonical healthy gateway; `:20130` is the front-end |
+| Phase B: ensure **one** `STORAGE_ENCRYPTION_KEY` line | There are two; the **second** line is authoritative (decrypts via the legacy salt). Do **not** edit these lines blind — the process may take the key from the NSSM service env, so a wrong guess = total decryption outage on restart |
+| Phase D: reauth NVIDIA/Codex/Antigravity/Copilot first | Those are dead ends; the live path is gemini/mistral/groq/cohere/alibaba/morph, already reactivated |
+
+Note on the health-check recommendation: re-enabling the credential/token sweeps to "self-heal"
+`test_status` was deliberately **not** done — it reintroduces the ~37s event-loop stalls and
+watchdog crashes above. Real request failures already keep `test_status` honest in real time.
+
+---
+
+> **The remainder of this document is the ORIGINAL 2026-08-24 investigation, retained unchanged as a
+> record. Its conclusions were disproven — see the correction above.**
+
+## Executive conclusion (original — SUPERSEDED)
 
 NeonBuild's implementation is healthy at the application level, but live AI generation is currently blocked by OmniRoute.
 
