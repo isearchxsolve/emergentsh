@@ -19,7 +19,7 @@ import subprocess
 from typing import List, Optional, Tuple
 
 DEFAULT_IMAGE = os.getenv("SANDBOX_IMAGE", "python:3.11-slim")
-DEFAULT_TIMEOUT = int(os.getenv("SANDBOX_TIMEOUT_SECONDS", "120"))
+DEFAULT_TIMEOUT = int(os.getenv("SANDBOX_TIMEOUT_SECONDS", "600"))
 DOCKER_IMAGE = os.getenv("SANDBOX_DOCKER_IMAGE", DEFAULT_IMAGE)
 
 

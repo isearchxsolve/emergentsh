@@ -150,4 +150,4 @@ class TestFrontendAgentUsesLint:
         assert '"backdrop-blur" not in code' not in source, (
             "the old string-search gate must be gone"
         )
-        assert "lint_frontend_design_tokens" in source
+        assert "validate_frontend_contract" in source

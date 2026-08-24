@@ -5,7 +5,13 @@ import json
 import httpx
 import pytest
 
-from backend.app.services.nim_client import AsyncNIMClient, AsyncOmniRouteClient, configured_inference_provider, get_inference_client
+from backend.app.services.nim_client import (
+    AsyncNIMClient,
+    AsyncOmniRouteClient,
+    configured_inference_provider,
+    configured_omniroute_route,
+    get_inference_client,
+)
 
 
 def test_auto_provider_prefers_omniroute_without_nvidia_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -25,6 +31,15 @@ def test_explicit_omniroute_never_requires_nvidia_key(monkeypatch: pytest.Monkey
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     client = get_inference_client()
     assert isinstance(client, AsyncOmniRouteClient)
+
+
+def test_omniroute_stage_routes_use_multi_provider_defaults_and_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert configured_omniroute_route("planner") == "auto/best-reasoning"
+    assert configured_omniroute_route("backend") == "auto/best-coding"
+    monkeypatch.setenv("OMNIROUTE_BACKEND_ROUTE", "fusion-coder")
+    assert configured_omniroute_route("backend") == "fusion-coder"
 
 
 async def make_client(transport: httpx.MockTransport) -> AsyncNIMClient:
@@ -196,6 +211,79 @@ async def test_omniroute_failure_opens_circuit(monkeypatch: pytest.MonkeyPatch) 
         await client.close()
 
     assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_omniroute_route_error_reports_only_safe_route_statuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"error": "credential rejected"})
+
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "omni-test-key")
+    client = AsyncOmniRouteClient(models=["auto/best-coding"], cooldown_seconds=60)
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(base_url=client.base_url, transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(RuntimeError, match=r"auto/best-coding \(HTTP 403\)"):
+            await client.chat_completion(messages=[{"role": "user", "content": "hi"}])
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_requested_omniroute_route_falls_back_to_another_gateway_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempted_models: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        model = json.loads(request.content)["model"]
+        attempted_models.append(model)
+        if model == "auto/best-reasoning":
+            return httpx.Response(503, json={"error": "reasoning route unavailable"})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "gateway result"}}]})
+
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "omni-test-key")
+    client = AsyncOmniRouteClient(models=["auto/best-coding"], cooldown_seconds=60)
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(base_url=client.base_url, transport=httpx.MockTransport(handler))
+    try:
+        result = await client.chat_completion(
+            messages=[{"role": "user", "content": "hi"}], model="auto/best-reasoning"
+        )
+    finally:
+        await client.close()
+
+    assert result["choices"][0]["message"]["content"] == "gateway result"
+    assert attempted_models == ["auto/best-reasoning", "auto/best-coding"]
+
+
+@pytest.mark.asyncio
+async def test_omniroute_stream_accepts_gateway_json_completion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert json.loads(request.content)["stream"] is True
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "complete gateway response"}}]},
+        )
+
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "omni-test-key")
+    client = AsyncOmniRouteClient(models=["auto/best-coding"])
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(base_url=client.base_url, transport=httpx.MockTransport(handler))
+    try:
+        chunks = [
+            chunk async for chunk in client.chat_stream(
+                messages=[{"role": "user", "content": "hi"}], model="auto/best-reasoning"
+            )
+        ]
+    finally:
+        await client.close()
+
+    assert chunks == ["complete gateway response"]
 
 
 @pytest.mark.asyncio

@@ -12,6 +12,8 @@ test('authenticated workspace completes a build and exposes preview/export', asy
   await page.route('**/api/pipeline/stream/e2e-job-1', async route => {
     const events = [
       { event: 'agent_start', role: 'planner', data: {} },
+      { event: 'agent_retry', role: 'designer', data: { attempt: 2, recovered: false, reason: 'missing typography' } },
+      { event: 'agent_retry', role: 'designer', data: { attempt: 4, recovered: true, reason: 'missing typography' } },
       { event: 'agent_done', role: 'planner', data: { artifacts: ['PLAN.md'], status: 'planning' } },
       { event: 'pipeline_complete', role: 'orchestrator', data: { status: 'complete', target: 'react-native', artifacts: ['PLAN.md'], errors: [] } },
     ];
@@ -35,6 +37,8 @@ test('authenticated workspace completes a build and exposes preview/export', asy
 
   await expect(page.getByText(/Build accepted · react-native target/i)).toBeVisible();
   await expect(page.getByText(/Analyzing the product and planning the architecture/i)).toBeVisible();
+  await expect(page.getByText(/designer detected an incomplete result and is repairing it now/i)).toBeVisible();
+  await expect(page.getByText(/NeonBuild applied its validated platform defaults and continued/i)).toBeVisible();
   await expect(page.getByText(/completed building your app/i)).toBeVisible();
   await expect(page.getByText(/planner is complete/i)).toBeVisible();
   await expect(page.getByTitle('Refresh preview')).toBeVisible();

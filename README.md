@@ -32,9 +32,10 @@ docker compose -f docker-compose.smoke.yml up --build
 ## Scaled inference through OmniRoute
 
 Production should set `INFERENCE_PROVIDER=omniroute`,
-`INFERENCE_STRICT_MODE=true`, and `OMNIROUTE_API_KEY`. OmniRoute owns the
-underlying NVIDIA key rotation; individual NVIDIA keys are not configured in
-NeonBuild. Direct `INFERENCE_PROVIDER=nim` remains available for development.
+`INFERENCE_STRICT_MODE=true`, and `OMNIROUTE_API_KEY`. OmniRoute owns route
+selection, provider fallbacks, and any upstream key rotation; individual
+provider credentials are not configured in NeonBuild. Direct
+`INFERENCE_PROVIDER=nim` remains available for development.
 
 ## OmniRoute route health
 
@@ -44,10 +45,11 @@ After setting the gateway credential, verify an actual completion with:
 python scripts/probe_omniroute.py
 ```
 
-The default ordered routes are measured NVIDIA routes through OmniRoute:
-`nvidia/nvidia/nemotron-3-super-120b-a12b`,
-`nvidia/nvidia/nemotron-3-nano-30b-a3b`, and
-`nvidia/meta/llama-3.1-8b-instruct`. Override their order with the comma
+The default ordered gateway fallbacks are `auto/best-coding` and
+`auto/best-reasoning`. Planner and design stages use the reasoning route;
+build, integration, preview, QA, and DevOps stages use the coding route.
+Each route is an OmniRoute-managed cross-provider policy. Override fallback
+order with the comma
 separated `OMNIROUTE_FALLBACK_MODELS` variable. The fallback circuit opens for
 30 seconds after all routes fail, so a saturated gateway cannot extend every
 NIM failure.

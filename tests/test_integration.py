@@ -16,6 +16,12 @@ import pytest
 @pytest.mark.integration
 class TestFullPipeline:
     """Integration tests for the complete app generation pipeline."""
+
+    @pytest.fixture(autouse=True)
+    def disable_external_generated_builds_for_mock_provider(self, monkeypatch):
+        # Node/browser execution is covered by the live-pipeline acceptance
+        # run; this deterministic provider fixture verifies orchestration.
+        monkeypatch.setenv("VERIFY_GENERATED_BUILDS", "false")
     
     @pytest.fixture
     def temp_project_dir(self):
@@ -79,7 +85,14 @@ A full-stack task management SaaS application with user authentication, project 
 1. M1: Project setup, auth, database models
 2. M2: Project CRUD, task management
 3. M3: Team collaboration, real-time updates
-4. M4: Testing, deployment, documentation"""
+4. M4: Testing, deployment, documentation
+
+## Acceptance Tests
+- Health endpoint and authenticated project create/read journey
+- Responsive browser journey at desktop and 390px mobile
+
+## Local Startup
+- Run FastAPI on port 8000 and Vite on port 5173 without Docker"""
             
             elif "ui/ux designer" in system_msg.lower():
                 yield """{
@@ -114,35 +127,49 @@ A full-stack task management SaaS application with user authentication, project 
   }
 }"""
             elif "frontend engineer" in system_msg.lower():
-                yield """// frontend/App.tsx
-import React, { useState } from 'react';
-import './App.css';
-
+                yield """import React, { useEffect, useState } from 'react';
+const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 export default function App() {
-  const [tasks] = useState(['Design review', 'Ship kanban board']);
-  return (
-    <main className="min-h-screen bg-[#0f172a] text-[#f8fafc]">
-      <header className="border-b border-[#0ea5e9]/30 px-6 py-4 transition-colors">
-        <h1 className="text-2xl font-bold text-[#0ea5e9]">Task Manager</h1>
-      </header>
-      <section className="grid gap-4 p-6">
-        {tasks.map((task) => (
-          <div
-            key={task}
-            className="rounded-xl bg-[#1e293b] p-4 shadow-lg backdrop-blur-md transition-transform hover:scale-[1.02]"
-          >
-            <p className="text-[#f8fafc]">{task}</p>
-            <button className="mt-2 rounded bg-[#0ea5e9] px-3 py-1 text-sm transition-colors hover:bg-[#0284c7]">
-              Open
-            </button>
-          </div>
-        ))}
-      </section>
-    </main>
-  );
-}
-"""
+  const [projects,setProjects]=useState<any[]>([]); const [name,setName]=useState('');
+  const [loading,setLoading]=useState(true); const [error,setError]=useState('');
+  useEffect(()=>{fetch(`${API_BASE}/projects`).then(r=>r.json()).then(setProjects).catch(()=>setError('Unable to load projects')).finally(()=>setLoading(false))},[]);
+  async function createProject(e:React.FormEvent){e.preventDefault();const r=await fetch(`${API_BASE}/projects`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});if(!r.ok){setError('Unable to save');return}setProjects([...projects,await r.json()]);setName('')}
+  return <main className="min-h-screen bg-[#0f172a] text-[#f8fafc] transition-colors" style={{color:'#0ea5e9'}}><header className="p-6 backdrop-blur-md shadow-lg"><h1>Task Manager</h1></header><form data-testid="primary-form" onSubmit={createProject} className="m-6 rounded-xl p-4 transition-transform hover:scale-[1.01] focus-within:ring-2"><input value={name} onChange={e=>setName(e.target.value)} aria-label="Project name"/><button data-testid="primary-submit">Create</button></form>{loading?<p>Loading</p>:error?<p>{error}</p>:projects.length===0?<p>Empty — create your first project</p>:projects.map(p=><p className="p-4" key={p.id}>{p.name}</p>)}</main>
+}"""
             elif "fastapi backend engineer" in system_msg.lower():
+                yield """import os
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer
+from pydantic import BaseModel
+from sqlalchemy import Column, Integer, String, create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
+from jose import jwt
+SECRET_KEY=os.getenv('SECRET_KEY','local-development-only')
+engine=create_engine('sqlite:///./taskmanager.db',connect_args={'check_same_thread':False})
+SessionLocal=sessionmaker(bind=engine); Base=declarative_base()
+class ProjectRow(Base):
+    __tablename__='projects'; id=Column(Integer,primary_key=True); name=Column(String,nullable=False)
+Base.metadata.create_all(engine)
+class ProjectIn(BaseModel): name:str
+app=FastAPI(); app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173'],allow_methods=['*'],allow_headers=['*'])
+oauth2_scheme=OAuth2PasswordBearer(tokenUrl='/api/v1/auth/login')
+@app.get('/api/v1/health')
+def health(): return {'status':'healthy'}
+@app.post('/api/v1/auth/login')
+def login(): return {'access_token':jwt.encode({'sub':'qa'},SECRET_KEY,algorithm='HS256')}
+@app.get('/api/v1/projects')
+def projects():
+    with SessionLocal() as db:return [{'id':p.id,'name':p.name} for p in db.query(ProjectRow).all()]
+@app.post('/api/v1/projects',status_code=201)
+def create_project(data:ProjectIn):
+    with SessionLocal() as db:p=ProjectRow(name=data.name);db.add(p);db.commit();db.refresh(p);return {'id':p.id,'name':p.name}
+@app.patch('/api/v1/projects/{project_id}')
+def update_project(project_id:int,data:ProjectIn): return {'id':project_id,'name':data.name}
+@app.delete('/api/v1/projects/{project_id}')
+def delete_project(project_id:int): return {'deleted':project_id}
+"""
+            elif False and "fastapi backend engineer" in system_msg.lower():
                 yield """# backend/main.py
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -373,7 +400,14 @@ async def health():
     return {"status": "healthy"}"""
             
             elif "devops and integration specialist" in system_msg.lower():
-                yield """# docker-compose.yml
+                if ".env.example" in user_msg.lower():
+                    yield "API_URL=/api/v1\nDATABASE_URL=sqlite:///./taskmanager.db\nSECRET_KEY=replace-in-production"
+                elif "dockerfile for the frontend" in user_msg.lower():
+                    yield "FROM node:20-alpine\nWORKDIR /app\nCOPY . .\nRUN npm run build"
+                elif "dockerfile for the backend" in user_msg.lower():
+                    yield "FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nCMD [\"python\",\"-m\",\"uvicorn\",\"backend.main:app\"]"
+                else:
+                    yield """# docker-compose.yml
 version: '3.8'
 
 services:
@@ -462,29 +496,24 @@ volumes:
 networks:
   taskmanager-network:
     driver: bridge"""
+
+            elif "preview engineer" in system_msg.lower():
+                yield """<!doctype html><html><head><style>body{background:linear-gradient(#07110d,#111);box-shadow:0 0 30px #000;color:white}@media(max-width:600px){body{padding:8px}}</style></head><body><form><input aria-label='Project'/><button type='submit'>Create</button></form><button>Refresh</button><script>document.querySelector('form').addEventListener('submit',e=>{e.preventDefault();document.body.dataset.saved='true'})</script></body></html>"""
             
             elif "qa engineer" in system_msg.lower():
-                yield """# tests/test_backend.py
-# Self-contained smoke test for the generated backend. It must not import
-# project modules that the generator did not emit, so it passes when the
-# QA agent executes it inside the generated project directory.
-import json
-
-
-def test_health_payload_shape():
-    payload = {"status": "healthy"}
-    assert payload["status"] == "healthy"
-    assert json.dumps(payload)
-
-
-def test_design_tokens_present():
-    tokens = {"colors": {"primary": "#0ea5e9"}, "typography": {"font_family": "Inter"}}
-    assert "colors" in tokens
-    assert "typography" in tokens
+                yield """from fastapi.testclient import TestClient
+from backend.main import app
+client=TestClient(app)
+def test_health():
+    assert client.get('/api/v1/health').status_code == 200
+def test_create_and_read_project():
+    assert client.post('/api/v1/projects',json={'name':'QA'}).status_code == 201
+    response=client.get('/api/v1/projects'); assert response.status_code == 200; assert response.json()
 """
 
             elif "devops engineer" in system_msg.lower():
-                yield """name: CI
+                if "github actions" in user_msg.lower():
+                    yield """name: CI
 
 on: [push, pull_request]
 
@@ -493,22 +522,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build
-        run: docker compose build
-
----
-# DEPLOYMENT_CHECKLIST.md
-- [ ] Set SECRET_KEY
-- [ ] docker compose -f docker-compose.prod.yml up -d
-
----
-# docker-compose.prod.yml
-version: '3.8'
-services:
-  app:
-    build: .
-    restart: always
+      - run: pytest
+      - run: npm run build
 """
+                elif "deployment checklist" in user_msg.lower():
+                    yield "# Deployment\n- [ ] Apply migration\n- [ ] Configure secret\n- [ ] Verify health\n- [ ] Test rollback"
+                else:
+                    yield "services:\n  app:\n    build: .\n    restart: always"
 
             else:
                 yield f"# Generated artifact for: {system_msg[:100]}..."
@@ -543,7 +563,7 @@ services:
         )
         
         # Verify pipeline completed successfully
-        assert ctx.status.value == "complete"
+        assert ctx.status.value == "complete", ctx.errors
         assert len(ctx.errors) == 0
         
         # Verify all expected artifacts were generated
@@ -594,8 +614,8 @@ services:
         agent_dones = [e for e in events if e["event"] == "agent_done"]
         pipeline_complete = [e for e in events if e["event"] == "pipeline_complete"]
         
-        assert len(agent_starts) == 7  # 7 agents
-        assert len(agent_dones) == 7
+        assert len(agent_starts) == 8  # planner through deployment, including preview
+        assert len(agent_dones) == 8
         assert len(pipeline_complete) == 1
         assert pipeline_complete[0]["data"]["status"] == "complete"
         

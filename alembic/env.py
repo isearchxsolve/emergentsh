@@ -27,6 +27,18 @@ if database_url:
 target_metadata = Base.metadata
 
 
+def include_object(object_, name, type_, reflected, compare_to):
+    """Ignore tables owned by other applications in a shared database.
+
+    NeonBuild migrations own only tables present in Base.metadata. Without
+    this guard, Alembic autogenerate proposes destructive drops for unrelated
+    schemas/tables such as other local services using the same PostgreSQL DB.
+    """
+    if type_ == "table" and reflected and compare_to is None:
+        return name in target_metadata.tables
+    return True
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
@@ -34,13 +46,19 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def do_run_migrations(connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+        include_object=include_object,
+    )
     with context.begin_transaction():
         context.run_migrations()
 

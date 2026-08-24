@@ -28,19 +28,53 @@ except ImportError:
 DEFAULT_BASE_URL = os.getenv("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
 DEFAULT_MODEL = os.getenv("NIM_DEFAULT_MODEL", "meta/llama-3.1-8b-instruct")
 DEFAULT_OMNIROUTE_BASE_URL = os.getenv("OMNIROUTE_BASE_URL", "http://127.0.0.1:20128/v1")
+# These are OmniRoute *routes*, rather than a pinned NVIDIA model. Each route
+# is a provider-aware policy managed by OmniRoute, so it can use its ordered
+# upstream providers and credentials without NeonBuild knowing any provider
+# secrets. Keep the list deliberately short and proven: it is both the default
+# gateway health probe and the last-resort route fallback.
 DEFAULT_OMNIROUTE_MODELS = (
-    "nvidia/nvidia/nemotron-3-super-120b-a12b",
-    "nvidia/nvidia/nemotron-3-nano-30b-a3b",
-    "nvidia/meta/llama-3.1-8b-instruct",
+    "auto/best-coding",
+    "auto/best-reasoning",
 )
+
+# Stage routing lets the gateway apply the right cross-provider policy to the
+# work at hand. Operators may override any value with, for example,
+# OMNIROUTE_FRONTEND_ROUTE=fusion-coder, without a code deployment. A route
+# can also be a concrete model where an operator intentionally wants that.
+DEFAULT_OMNIROUTE_ROUTES_BY_STAGE = {
+    "planner": "auto/best-reasoning",
+    "designer": "auto/best-reasoning",
+    "frontend": "auto/best-coding",
+    "backend": "auto/best-coding",
+    "integration": "auto/best-coding",
+    "preview": "auto/best-coding",
+    "qa": "auto/best-coding",
+    "devops": "auto/best-coding",
+}
 
 
 def _configured_omniroute_models() -> List[str]:
-    """Return ordered OmniRoute fallback models without accepting empty IDs."""
+    """Return ordered gateway route fallbacks without accepting empty IDs."""
     raw = os.getenv("OMNIROUTE_FALLBACK_MODELS", "")
     if not raw.strip():
         return list(DEFAULT_OMNIROUTE_MODELS)
     return [model.strip() for model in raw.split(",") if model.strip()]
+
+
+def configured_omniroute_route(stage: str) -> str:
+    """Return the OmniRoute route selected for a NeonBuild pipeline stage.
+
+    The stage value is intentionally a string so this module remains usable by
+    the transport layer without importing the pipeline's enum. Unknown stages
+    use the general coding route rather than accidentally pinning a provider.
+    """
+    normalized_stage = stage.strip().lower()
+    default = DEFAULT_OMNIROUTE_ROUTES_BY_STAGE.get(
+        normalized_stage, DEFAULT_OMNIROUTE_MODELS[0]
+    )
+    env_name = f"OMNIROUTE_{normalized_stage.upper()}_ROUTE"
+    return os.getenv(env_name, default).strip() or default
 
 
 class AsyncOmniRouteClient:
@@ -56,7 +90,7 @@ class AsyncOmniRouteClient:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         models: Optional[List[str]] = None,
-        timeout: float = 20.0,
+        timeout: Optional[float] = None,
         cooldown_seconds: float = 30.0,
     ) -> None:
         self.api_key = (api_key or os.getenv("OMNIROUTE_API_KEY") or "").strip()
@@ -66,7 +100,12 @@ class AsyncOmniRouteClient:
         self.models = models or _configured_omniroute_models()
         if not self.models:
             raise ValueError("At least one OmniRoute fallback model is required.")
-        self.timeout = timeout
+        # Composite routes may need to advance between upstream providers or
+        # produce a long planning/code response. A 20-second gateway timeout
+        # turns normal generation latency into avoidable repair loops.
+        self.timeout = timeout if timeout is not None else float(
+            os.getenv("OMNIROUTE_TIMEOUT_SECONDS", "600")
+        )
         self.cooldown_seconds = cooldown_seconds
         self._open_until = 0.0
         self._client = httpx.AsyncClient(
@@ -76,7 +115,7 @@ class AsyncOmniRouteClient:
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             },
-            timeout=timeout,
+            timeout=self.timeout,
         )
 
     async def close(self) -> None:
@@ -93,6 +132,19 @@ class AsyncOmniRouteClient:
     def _record_success(self) -> None:
         self._open_until = 0.0
 
+    def _candidate_routes(self, model: Optional[str]) -> List[str]:
+        """Try the requested route first, then the gateway's safe fallbacks."""
+        candidates = [model] if model else []
+        candidates.extend(self.models)
+        return list(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+    @staticmethod
+    def _safe_route_error(candidate: str, exc: Exception) -> str:
+        """Keep route diagnostics actionable without exposing credentials/body data."""
+        if isinstance(exc, httpx.HTTPStatusError):
+            return f"{candidate} (HTTP {exc.response.status_code})"
+        return f"{candidate} ({type(exc).__name__})"
+
     async def chat_completion(
         self,
         messages: List[Dict[str, str]],
@@ -102,8 +154,9 @@ class AsyncOmniRouteClient:
         stream: bool = False,
     ) -> Dict[str, Any]:
         self._ensure_circuit_closed()
-        candidates = [model] if model else self.models
+        candidates = self._candidate_routes(model)
         last_error: Optional[Exception] = None
+        route_errors: List[str] = []
         for candidate in candidates:
             try:
                 response = await self._client.post("chat/completions", json={
@@ -122,8 +175,10 @@ class AsyncOmniRouteClient:
                 return body
             except Exception as exc:
                 last_error = exc
+                route_errors.append(self._safe_route_error(candidate, exc))
         self._record_failure()
-        raise RuntimeError("All configured OmniRoute fallback models failed.") from last_error
+        details = ", ".join(route_errors) or "no route diagnostics"
+        raise RuntimeError(f"All configured OmniRoute routes failed: {details}.") from last_error
 
     async def chat_stream(
         self,
@@ -133,8 +188,9 @@ class AsyncOmniRouteClient:
         max_tokens: int = 4096,
     ) -> AsyncIterator[str]:
         self._ensure_circuit_closed()
-        candidates = [model] if model else self.models
+        candidates = self._candidate_routes(model)
         last_error: Optional[Exception] = None
+        route_errors: List[str] = []
         for candidate in candidates:
             emitted = False
             try:
@@ -146,6 +202,22 @@ class AsyncOmniRouteClient:
                     "stream": True,
                 }) as response:
                     response.raise_for_status()
+                    # Some OmniRoute composite policies intentionally return a
+                    # complete OpenAI JSON payload even when stream=true. That
+                    # is still a valid completion; surface it as one delta
+                    # instead of falsely marking the route as empty and
+                    # failing an otherwise healthy pipeline stage.
+                    content_type = response.headers.get("content-type", "").lower()
+                    if "application/json" in content_type:
+                        import json
+                        body = json.loads((await response.aread()).decode("utf-8"))
+                        content = ((body.get("choices") or [{}])[0].get("message") or {}).get("content")
+                        if content:
+                            emitted = True
+                            yield content
+                            self._record_success()
+                            return
+                        raise RuntimeError(f"OmniRoute model {candidate} returned no generated content.")
                     async for line in response.aiter_lines():
                         if not line or not line.startswith("data:"):
                             continue
@@ -172,8 +244,10 @@ class AsyncOmniRouteClient:
                     self._record_failure()
                     raise
                 last_error = exc
+                route_errors.append(self._safe_route_error(candidate, exc))
         self._record_failure()
-        raise RuntimeError("All configured OmniRoute fallback models failed.") from last_error
+        details = ", ".join(route_errors) or "no route diagnostics"
+        raise RuntimeError(f"All configured OmniRoute routes failed: {details}.") from last_error
 
     async def list_models(self) -> List[str]:
         self._ensure_circuit_closed()

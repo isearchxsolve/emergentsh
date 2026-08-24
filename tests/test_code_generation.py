@@ -76,8 +76,8 @@ def test_backend_generator_can_instantiate_with_project(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_pipeline_writes_artifacts_to_disk(tmp_path):
-    """Full pipeline (mocked NIM) must write non-empty files under project_dir."""
+async def test_pipeline_rejects_superficial_scaffold_before_writing_deliverables(tmp_path):
+    """A vague plan/static UI must not be presented as a generated project."""
     from backend.agent_pipeline import AgentPipeline
 
     mock = AsyncMock()
@@ -110,11 +110,10 @@ async def test_pipeline_writes_artifacts_to_disk(tmp_path):
         project_dir=str(tmp_path),
     )
 
-    assert ctx is not None
+    assert ctx.status.value == "failed"
+    assert any("Planner validation failed" in error for error in ctx.errors)
     files = [p for p in tmp_path.rglob("*") if p.is_file()]
-    assert len(files) >= 1, f"Expected generated files, found {files}"
-    for f in files:
-        assert f.stat().st_size > 0, f"{f} is empty"
+    assert files == []
 
 
 def test_agent_pipeline_module_imports():

@@ -336,12 +336,15 @@ export default function WorkspacePage() {
     } else if (payload.event === 'agent_retry') {
       const agentName = payload.role || 'agent';
       const attempt = payload.data?.attempt || 2;
-      const progressKey = `${jobId}:${agentName}:retry:${attempt}`;
+      const recovered = Boolean(payload.data?.recovered);
+      const progressKey = `${jobId}:${agentName}:retry:${attempt}:${recovered ? 'recovered' : 'repairing'}`;
       setMessages(prev => prev.some(message => message.metadata?.progressKey === progressKey) ? prev : [...prev, {
         id: progressKey,
         role: 'tool',
         agent: agentName,
-        content: `${agentName} detected a validation issue and self-corrected on attempt ${attempt}.`,
+        content: recovered
+          ? `${agentName} could not produce a complete contract, so NeonBuild applied its validated platform defaults and continued.`
+          : `${agentName} detected an incomplete result and is repairing it now (attempt ${attempt}).`,
         timestamp: new Date(),
         metadata: { progressKey, jobId },
       }]);

@@ -67,12 +67,37 @@ def flutter_scaffold(name: str = "neonbuild_app") -> Dict[str, str]:
 
 
 def scaffold_for(target: str, name: str) -> Dict[str, str]:
-    if target == "pwa":
-        return {
+    if target in {"web", "pwa"}:
+        slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "neonbuild-app"
+        files = {
+            "frontend/package.json": json.dumps({
+                "name": slug,
+                "version": "1.0.0",
+                "private": True,
+                "type": "module",
+                "scripts": {"dev": "vite", "build": "tsc -b && vite build", "typecheck": "tsc --noEmit", "preview": "vite preview", "e2e": "playwright test"},
+                "dependencies": {"react": "^18.3.1", "react-dom": "^18.3.1"},
+                "devDependencies": {"@playwright/test": "^1.46.0", "@types/react": "^18.3.3", "@types/react-dom": "^18.3.0", "@vitejs/plugin-react": "^4.3.1", "autoprefixer": "^10.4.20", "postcss": "^8.4.41", "tailwindcss": "^3.4.10", "typescript": "^5.5.0", "vite": "^5.4.0"},
+            }, indent=2),
+            "frontend/index.html": '<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>NeonBuild App</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>\n',
+            "frontend/src/main.tsx": "import React from 'react';\nimport ReactDOM from 'react-dom/client';\nimport App from '../App';\nimport './index.css';\nReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);\n",
+            "frontend/src/index.css": "@tailwind base;\n@tailwind components;\n@tailwind utilities;\nhtml{color-scheme:dark}body{margin:0;min-width:320px;min-height:100vh}\nbutton,input,select,textarea{font:inherit}\n",
+            "frontend/tsconfig.json": json.dumps({"compilerOptions": {"target": "ES2020", "useDefineForClassFields": True, "lib": ["ES2020", "DOM", "DOM.Iterable"], "allowJs": False, "skipLibCheck": True, "esModuleInterop": True, "allowSyntheticDefaultImports": True, "strict": True, "forceConsistentCasingInFileNames": True, "module": "ESNext", "moduleResolution": "Bundler", "resolveJsonModule": True, "isolatedModules": True, "noEmit": True, "jsx": "react-jsx"}, "include": ["App.tsx", "src"]}, indent=2),
+            "frontend/vite.config.ts": "import { defineConfig } from 'vite';\nimport react from '@vitejs/plugin-react';\nexport default defineConfig({plugins:[react()],server:{proxy:{'/api':'http://127.0.0.1:8000'}}});\n",
+            "frontend/tailwind.config.js": "export default {content:['./index.html','./App.tsx','./src/**/*.{ts,tsx}'],theme:{extend:{}},plugins:[]};\n",
+            "frontend/postcss.config.js": "export default {plugins:{tailwindcss:{},autoprefixer:{}}};\n",
+            "frontend/playwright.config.ts": "import {defineConfig} from '@playwright/test';\nexport default defineConfig({testDir:'./e2e',timeout:60000,use:{baseURL:'http://127.0.0.1:4173',channel:'chrome',trace:'retain-on-failure'},webServer:[{command:'python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000',cwd:'..',url:'http://127.0.0.1:8000/api/v1/health',timeout:120000,reuseExistingServer:false},{command:'npm run dev -- --host 127.0.0.1 --port 4173',url:'http://127.0.0.1:4173',timeout:120000,reuseExistingServer:false}]});\n",
+            "frontend/e2e/fullstack.spec.ts": "import {test,expect} from '@playwright/test';\nfor(const viewport of [{name:'desktop',width:1440,height:900},{name:'mobile',width:390,height:844}]){test(`primary full-stack journey - ${viewport.name}`,async({page})=>{await page.setViewportSize(viewport);const errors:string[]=[];const api:{method:string,status:number}[]=[];page.on('console',m=>{if(m.type()==='error')errors.push(m.text())});page.on('pageerror',e=>errors.push(e.message));page.on('response',r=>{if(r.url().includes('/api/'))api.push({method:r.request().method(),status:r.status()})});await page.goto('/',{waitUntil:'networkidle'});await expect(page.locator('body')).toBeVisible();await expect(page.getByTestId('primary-form')).toBeVisible();const fields=page.getByTestId('primary-form').locator('input,textarea');for(let i=0;i<await fields.count();i++){const field=fields.nth(i);const type=await field.getAttribute('type');if(type!=='hidden'&&type!=='submit')await field.fill(type==='email'?'qa@example.com':type==='number'?'1':'QA journey')}await page.getByTestId('primary-submit').click();await page.waitForTimeout(700);expect(api.some(r=>r.method==='GET'&&r.status<500)).toBeTruthy();expect(api.some(r=>['POST','PUT','PATCH','DELETE'].includes(r.method)&&r.status<500)).toBeTruthy();expect(errors).toEqual([]);const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);expect(overflow).toBeLessThanOrEqual(1)})}\n",
+            "frontend/.env.example": "VITE_API_URL=/api/v1\n",
+        }
+        if target == "web":
+            return files
+        files.update({
             "frontend/public/manifest.webmanifest": json.dumps({"name": name, "short_name": name[:12], "start_url": "/", "display": "standalone", "background_color": "#030509", "theme_color": "#10b981", "icons": []}, indent=2),
             "frontend/public/sw.js": "const CACHE='neonbuild-v1';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['/']))));self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>caches.match(e.request))));\n",
             "PWA_READINESS.json": json.dumps({"installable_contract": True, "offline_shell": True, "audit_required": "Lighthouse production audit"}, indent=2),
-        }
+        })
+        return files
     if target == "react-native":
         files = react_native_scaffold(name)
         files[".github/workflows/mobile-ci.yml"] = """name: Mobile CI

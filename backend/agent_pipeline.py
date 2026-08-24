@@ -5,7 +5,8 @@ This module defines the AgentPipeline class which coordinates the lifecycle of
 a user-initiated app generation request through the full agent chain:
   Planning → Design → Frontend → Backend → Integration → QA → DevOps
 
-All inference calls route exclusively through NVIDIA NIM endpoints.
+Inference is provider-agnostic: production requests use OmniRoute's
+multi-provider routes, while direct NVIDIA NIM remains an explicit fallback.
 """
 
 from __future__ import annotations
@@ -17,14 +18,20 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, List, Optional
 import ast
+import copy
+import html
 import re
 import json
+import shutil
+import subprocess
+import tempfile
 
 from .nim_client import NIMClient, NIMConfig
 from .sandbox_executor import SandboxExecutor
 from .mobile_targets import detect_target, scaffold_for, verify_mobile_build
+from .app.services.nim_client import configured_inference_provider, configured_omniroute_route
 
 
 # Product capabilities users should receive without having to understand or
@@ -68,6 +75,32 @@ Every generated user interface must meet the Aurora Metal quality bar by default
 If the user provides brand colors, adapt the palette while preserving this same
 level of metallic depth, luminous glass, interaction polish, and accessibility.
 """.strip()
+
+
+# A malformed designer response must not terminate an otherwise valid build.
+# These deterministic tokens are the platform quality floor; model output can
+# override them, but missing categories are always completed here.
+DEFAULT_DESIGN_TOKENS: Dict[str, Any] = {
+    "colors": {"background": "#07110D", "surface": "#101A17", "surfaceElevated": "#17231F", "primary": "#34D399", "secondary": "#22D3EE", "accent": "#E879F9", "text": "#F5F7F6", "textMuted": "#94A3B8", "success": "#4ADE80", "warning": "#FBBF24", "error": "#FB7185"},
+    "typography": {"fontFamily": "Inter, ui-sans-serif, system-ui, sans-serif", "display": "clamp(2.25rem, 5vw, 4.5rem)", "heading": "clamp(1.5rem, 3vw, 2.5rem)", "body": "1rem", "caption": "0.8125rem"},
+    "spacing": {"xs": "0.25rem", "sm": "0.5rem", "md": "1rem", "lg": "1.5rem", "xl": "2rem", "2xl": "3rem"},
+    "radii": {"sm": "0.5rem", "md": "0.875rem", "lg": "1.25rem", "pill": "999px"},
+    "shadows": {"glass": "0 20px 60px rgba(0,0,0,.35)", "glow": "0 0 32px rgba(52,211,153,.16)"},
+    "motion": {"fast": "140ms", "normal": "220ms", "slow": "360ms", "easing": "cubic-bezier(.2,.8,.2,1)"},
+    "components": {"surface": "translucent metallic glass", "controls": "tactile, accessible, state-complete"},
+    "layouts": {"mobile": "single-column touch-first", "desktop": "responsive product workspace"},
+    "responsive": {"mobile": "390px", "tablet": "768px", "desktop": "1280px"},
+}
+
+
+def _looks_like_model_refusal(value: str) -> bool:
+    """Recognize an actual refusal without rejecting ordinary safety features."""
+    opening = value.strip().lower()[:800]
+    return any(phrase in opening for phrase in (
+        "i cannot fulfill", "i can't fulfill", "i am unable to comply",
+        "i'm unable to comply", "i cannot assist", "i can't assist",
+        "cannot comply with this request", "violates the safety policy",
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +157,7 @@ class PipelineContext:
     messages: List[AgentMessage] = field(default_factory=list)
     artifacts: Dict[str, str] = field(default_factory=dict)  # filename -> content
     errors: List[str] = field(default_factory=list)
+    recoveries: List[str] = field(default_factory=list)
     started_at: datetime = field(default_factory=datetime.utcnow)
     completed_at: Optional[datetime] = None
 
@@ -168,7 +202,7 @@ class PipelineContext:
 # ---------------------------------------------------------------------------
 
 class BaseAgent:
-    """Abstract base for all pipeline agents using NVIDIA NIM inference."""
+    """Abstract base for pipeline agents using the configured inference path."""
 
     SYSTEM_PROMPT: str = "You are a helpful AI assistant."
     role: AgentRole = AgentRole.PLANNER
@@ -178,6 +212,20 @@ class BaseAgent:
 
     async def run(self, ctx: PipelineContext) -> PipelineContext:
         raise NotImplementedError
+
+    def recover_validation_failure(
+        self, ctx: PipelineContext, error: ValueError
+    ) -> Optional[PipelineContext]:
+        """Return a deterministic recovery when this stage has a safe one."""
+        return None
+
+    def _selected_model(self, requested_model: Optional[str]) -> Optional[str]:
+        """Select an OmniRoute stage policy unless a caller pins a model."""
+        if requested_model:
+            return requested_model
+        if configured_inference_provider() == "omniroute":
+            return configured_omniroute_route(self.role.value)
+        return None
 
     async def _call_nim(
         self,
@@ -195,7 +243,7 @@ class BaseAgent:
         response_parts: List[str] = []
         async for chunk in self.nim.chat_stream(
             messages=messages,
-            model=model,
+            model=self._selected_model(model),
             temperature=temperature,
             max_tokens=max_tokens,
         ):
@@ -217,7 +265,7 @@ class BaseAgent:
         ]
         async for chunk in self.nim.chat_stream(
             messages=messages,
-            model=model,
+            model=self._selected_model(model),
             temperature=temperature,
             max_tokens=max_tokens,
         ):
@@ -313,11 +361,312 @@ def parse_design_tokens(raw_design: str) -> Dict[str, Any]:
     return parsed
 
 
+def complete_design_tokens(raw_design: str) -> Dict[str, Any]:
+    """Complete partial designer JSON with NeonBuild's deterministic baseline."""
+    completed = copy.deepcopy(DEFAULT_DESIGN_TOKENS)
+    cleaned = raw_design.strip()
+    first_object, last_object = cleaned.find("{"), cleaned.rfind("}")
+    if first_object >= 0 and last_object > first_object:
+        cleaned = cleaned[first_object:last_object + 1]
+    try:
+        partial = json.loads(cleaned)
+    except (json.JSONDecodeError, TypeError):
+        partial = {}
+    if not isinstance(partial, dict):
+        partial = {}
+    for envelope in ("designTokens", "design_tokens", "designSystem", "design_system", "tokens", "theme"):
+        if isinstance(partial.get(envelope), dict):
+            partial = partial[envelope]
+            break
+    aliases = {
+        "colors": ("colorPalette", "color_palette", "palette", "colourPalette", "colour_palette"),
+        "typography": ("fonts", "fontStyles", "font_styles", "textStyles", "text_styles"),
+    }
+    candidate_names = {"colors", "typography", *aliases["colors"], *aliases["typography"]}
+    if not (candidate_names & set(partial)):
+        for value in partial.values():
+            if isinstance(value, dict) and candidate_names & set(value):
+                partial = value
+                break
+    for canonical, alternatives in aliases.items():
+        if canonical not in partial:
+            for alternative in alternatives:
+                if alternative in partial:
+                    partial[canonical] = partial[alternative]
+                    break
+    for key, value in partial.items():
+        if isinstance(value, dict) and isinstance(completed.get(key), dict):
+            completed[key].update(value)
+        elif isinstance(completed.get(key), dict):
+            # Required structured categories cannot be replaced by a model's
+            # shorthand list/string representation.
+            continue
+        elif value not in (None, "", [], {}):
+            completed[key] = value
+    return completed
+
+
 def unwrap_generated_code(raw_output: str) -> str:
     """Extract model-generated code from a Markdown fence when present."""
     output = raw_output.strip()
     fenced = re.search(r"```[^\n]*\n(.*?)\n?```", output, re.DOTALL)
     return fenced.group(1).strip() if fenced else output
+
+
+def validate_plan_contract(plan: str) -> List[str]:
+    """Reject plans that omit the contracts downstream generators require."""
+    lowered = plan.lower()
+    required = {
+        "features": ("features", "user journeys"),
+        "API endpoints": ("api endpoints", "api contract"),
+        "database schema": ("database schema", "data model"),
+        "acceptance tests": ("acceptance", "test strategy"),
+        "local startup": ("local startup", "local development", "run locally"),
+    }
+    violations = [f"missing {label}" for label, aliases in required.items() if not any(alias in lowered for alias in aliases)]
+    if len(re.findall(r"\b(?:get|post|put|patch|delete)\s+/", lowered)) < 3:
+        violations.append("fewer than three concrete API endpoint declarations")
+    return violations
+
+
+def validate_design_contract(design: Dict[str, Any]) -> List[str]:
+    required = ("colors", "typography", "spacing", "radii", "shadows", "motion", "components", "layouts", "responsive")
+    violations = [f"missing {name}" for name in required if not isinstance(design.get(name), dict) or not design[name]]
+    breakpoints = json.dumps(design.get("responsive", {})).lower()
+    if "390" not in breakpoints:
+        violations.append("390px mobile breakpoint is not specified")
+    return violations
+
+
+def validate_frontend_contract(code: str, design_json: Optional[Dict[str, Any]] = None) -> List[str]:
+    """Require a real API-driven, state-complete, responsive product UI."""
+    violations = lint_frontend_design_tokens(code, design_json)
+    lowered = code.lower()
+    if not re.search(r"\b(fetch|axios\.)\s*\(", code):
+        violations.append("no real backend API call (fetch/axios)")
+    if not re.search(r"(?:vite_api|api_url|/api/v\d|['\"]/api/)", code, re.I):
+        violations.append("no configurable or versioned API base URL")
+    if not re.search(r"method\s*:\s*['\"](?:post|put|patch|delete)['\"]", code, re.I):
+        violations.append("primary journey has no API mutation")
+    if not re.search(r"<(?:form|input|textarea|select)\b", code, re.I):
+        violations.append("primary data-entry interaction is missing")
+    if "data-testid=\"primary-form\"" not in code and "data-testid='primary-form'" not in code:
+        violations.append("primary form lacks the stable E2E test contract")
+    if "data-testid=\"primary-submit\"" not in code and "data-testid='primary-submit'" not in code:
+        violations.append("primary submit action lacks the stable E2E test contract")
+    if not all(term in lowered for term in ("loading", "error")):
+        violations.append("loading and error states are not both implemented")
+    if not re.search(r"(?:empty|\.length\s*===\s*0|!\w+\.length)", code, re.I):
+        violations.append("empty state is not implemented")
+    forbidden = ("simulate api", "pretend network", "replace with real fetch", "placeholder icon", "todo: implement", "would open here")
+    found = [phrase for phrase in forbidden if phrase in lowered]
+    if found:
+        violations.append("mock/placeholder implementation detected: " + ", ".join(found))
+    return violations
+
+
+def validate_backend_contract(code: str) -> List[str]:
+    violations: List[str] = []
+    try:
+        ast.parse(code)
+    except SyntaxError as exc:
+        return [f"invalid Python: {exc}"]
+    lowered = code.lower()
+    routes = re.findall(r"@\w+\.(get|post|put|patch|delete)\(\s*['\"]([^'\"]+)", code, re.I)
+    methods = {method.lower() for method, _ in routes}
+    if len(routes) < 5:
+        violations.append("fewer than five concrete API routes")
+    if not {"get", "post"}.issubset(methods):
+        violations.append("read and create API operations are not both present")
+    if not any("health" in path.lower() for _, path in routes):
+        violations.append("health/readiness endpoint is missing")
+    if "sqlalchemy" not in lowered or not re.search(r"create_engine|async_engine|sessionmaker|asyncsession", code, re.I):
+        violations.append("persistent SQLAlchemy database integration is missing")
+    if not re.search(r"jwt|oauth2|authorization", code, re.I):
+        violations.append("authentication/authorization boundary is missing")
+    if "corsmiddleware" not in lowered:
+        violations.append("CORS integration is missing")
+    if not re.search(r"BaseModel|pydantic", code):
+        violations.append("Pydantic request validation is missing")
+    if re.search(r"SECRET_KEY\s*=\s*['\"][^'\"]+['\"]", code) and "getenv" not in lowered:
+        violations.append("secret is hard-coded instead of environment-driven")
+    return violations
+
+
+def validate_fullstack_handoff(frontend: str, backend: str) -> List[str]:
+    """Check that the frontend API vocabulary overlaps the backend's real routes."""
+    violations: List[str] = []
+    backend_paths = [path.lower() for _, path in re.findall(r"@\w+\.(get|post|put|patch|delete)\(\s*['\"]([^'\"]+)", backend, re.I)]
+    # Normalize resource names from paths, ignoring generic API/version segments.
+    resources = {part for path in backend_paths for part in path.split("/") if part and not part.startswith(("api", "v1", "v2", "{")) and part not in {"health", "auth", "me"}}
+    if not resources:
+        violations.append("backend exposes no product resource routes")
+    elif not any(re.search(rf"\b{re.escape(resource)}\b", frontend, re.I) for resource in resources):
+        violations.append("frontend API calls do not reference any backend product resource")
+    if not re.search(r"(?:vite_api|api_url|/api/)", frontend, re.I):
+        violations.append("frontend has no backend API base configuration")
+    return violations
+
+
+def validate_qa_contract(tests: str) -> List[str]:
+    violations: List[str] = []
+    try:
+        ast.parse(tests)
+    except SyntaxError as exc:
+        return [f"invalid Python tests: {exc}"]
+    lowered = tests.lower()
+    if len(re.findall(r"^def\s+test_", tests, re.M)) < 2:
+        violations.append("fewer than two executable tests")
+    if "assert true" in lowered:
+        violations.append("tautological assert True is not a product test")
+    if not re.search(r"testclient|httpx|client\.(?:get|post|put|patch|delete)", tests, re.I):
+        violations.append("no API client execution")
+    if "health" not in lowered:
+        violations.append("health/readiness smoke test is missing")
+    if not re.search(r"client\.(?:post|put|patch|delete)", tests, re.I):
+        violations.append("primary mutation journey is not tested")
+    return violations
+
+
+def validate_integration_artifacts(artifacts: Dict[str, str]) -> List[str]:
+    violations: List[str] = []
+    compose = artifacts.get("docker-compose.yml", "").lower()
+    env = artifacts.get(".env.example", "") + artifacts.get("frontend/.env.example", "")
+    if "services:" not in compose or "frontend" not in compose or "backend" not in compose:
+        violations.append("compose does not connect frontend and backend services")
+    if not all(name in env for name in ("API", "DATABASE", "SECRET")):
+        violations.append("environment templates omit API, DATABASE, or SECRET configuration")
+    if "backend/requirements.txt" not in artifacts:
+        violations.append("backend dependency lock contract is missing")
+    if "frontend/package.json" not in artifacts:
+        violations.append("frontend build contract is missing")
+    if "RUN_LOCAL.md" not in artifacts or "no Docker required" not in artifacts["RUN_LOCAL.md"]:
+        violations.append("host-native local startup workflow is missing")
+    return violations
+
+
+def validate_devops_artifacts(artifacts: Dict[str, str]) -> List[str]:
+    ci = artifacts.get(".github/workflows/ci.yml", "").lower()
+    checklist = artifacts.get("DEPLOYMENT_CHECKLIST.md", "").lower()
+    violations: List[str] = []
+    for label, marker in (("backend tests", "pytest"), ("frontend build", "npm run build"), ("checkout", "actions/checkout")):
+        if marker not in ci:
+            violations.append(f"CI omits {label}")
+    if not all(term in checklist for term in ("migration", "secret", "health", "rollback")):
+        violations.append("deployment checklist omits migrations, secrets, health checks, or rollback")
+    return violations
+
+
+async def run_host_command(command: List[str], cwd: Path, timeout: int = 600) -> tuple[bool, str]:
+    """Run a generated-project verifier without Docker and capture diagnostics."""
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            cwd=str(cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        output, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        text_output = output.decode("utf-8", errors="replace")[-12000:]
+        return process.returncode == 0, text_output
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.wait()
+        return False, f"Command timed out after {timeout}s: {' '.join(command)}"
+    except OSError as exc:
+        return False, f"Could not run {' '.join(command)}: {exc}"
+
+
+def deterministic_project_smoke_tests() -> str:
+    """Executable fallback checks that never depend on generated imports."""
+    return '''from pathlib import Path
+import ast
+import re
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_backend_is_valid_fastapi_module():
+    source = (ROOT / "backend" / "main.py").read_text(encoding="utf-8")
+    ast.parse(source)
+    assert "FastAPI" in source
+    routes = re.findall(r"@\\w+\\.(get|post|put|patch|delete)\\(", source, re.I)
+    assert len(routes) >= 5
+    assert "health" in source.lower()
+    assert "sqlalchemy" in source.lower()
+    assert re.search(r"jwt|oauth2|authorization", source, re.I)
+
+
+def test_frontend_has_runnable_component_contract():
+    source = (ROOT / "frontend" / "App.tsx").read_text(encoding="utf-8")
+    assert re.search(r"^\\s*(import|export)\\s", source, re.MULTILINE)
+    assert re.search(r"(function\\s+[A-Z]|const\\s+[A-Z].*=>|export\\s+default)", source)
+    assert "className=" in source or "style={{" in source
+    assert re.search(r"\\b(fetch|axios\\.)\\s*\\(", source)
+    compact = re.sub(r"\\s+", "", source.lower())
+    assert any(f"method:'{method}'" in compact or f'method:"{method}"' in compact for method in ("post", "put", "patch", "delete"))
+    assert not any(term in source.lower() for term in ("simulate api", "pretend network", "replace with real fetch", "would open here"))
+
+
+def test_frontend_declares_versioned_backend_contract():
+    frontend = (ROOT / "frontend" / "App.tsx").read_text(encoding="utf-8")
+    assert re.search(r"(?:vite_api|api_url|/api/)", frontend, re.I)
+
+
+def test_preview_is_offline_and_interactive():
+    source = (ROOT / "index.html").read_text(encoding="utf-8").lower()
+    assert "<!doctype html" in source
+    assert "<style" in source and "<script" in source
+    assert not re.search(r"(?:src|href)=[\\\"']https?://", source)
+    assert "${var(" not in source
+    assert "would open here" not in source
+'''
+
+
+def validate_preview_html(source: str) -> List[str]:
+    """Validate preview syntax, offline behavior, responsiveness, and polish."""
+    violations: List[str] = []
+    lowered = source.lower()
+    if "<!doctype html" not in lowered or "<script" not in lowered or "<style" not in lowered:
+        violations.append("expected self-contained HTML with inline style and script")
+    if re.search(r"(?:src|href)=[\"']https?://", source, re.I):
+        violations.append("remote preview dependency is not allowed")
+    if re.search(r"<script[^>]+src=", source, re.I):
+        violations.append("script dependencies must be inline")
+    if "@media" not in source:
+        violations.append("responsive media query is missing")
+    if len(re.findall(r"<button\b", source, re.I)) < 2:
+        violations.append("primary interactions are incomplete")
+    if any(phrase in lowered for phrase in ("would open here", "placeholder interaction", "todo: implement")):
+        violations.append("placeholder interaction text is not allowed")
+    quality_markers = sum(bool(re.search(pattern, source, re.I)) for pattern in (
+        r"backdrop-filter\s*:", r"(?:linear|radial)-gradient\(", r"box-shadow\s*:",
+    ))
+    if quality_markers < 2:
+        violations.append("visual quality floor is missing dimensional glass/gradient/shadow treatment")
+
+    scripts = re.findall(r"<script(?:\s[^>]*)?>(.*?)</script\s*>", source, re.I | re.S)
+    inline_javascript = "\n".join(scripts).strip()
+    if inline_javascript:
+        if "${var(" in inline_javascript:
+            violations.append("JavaScript contains an invalid CSS var() template expression")
+        node = shutil.which("node")
+        if node:
+            script_path = ""
+            try:
+                with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as handle:
+                    handle.write(inline_javascript)
+                    script_path = handle.name
+                checked = subprocess.run([node, "--check", script_path], capture_output=True, text=True, timeout=15)
+                if checked.returncode != 0:
+                    diagnostic = (checked.stderr or checked.stdout).strip().splitlines()
+                    violations.append("inline JavaScript syntax is invalid: " + (diagnostic[-1] if diagnostic else "node --check failed"))
+            except (OSError, subprocess.SubprocessError) as exc:
+                violations.append(f"inline JavaScript syntax check could not run: {exc}")
+            finally:
+                if script_path:
+                    Path(script_path).unlink(missing_ok=True)
+    return violations
 
 
 # ---------------------------------------------------------------------------
@@ -388,13 +737,21 @@ class PlannerAgent(BaseAgent):
     role = AgentRole.PLANNER
     SYSTEM_PROMPT = (
         "You are a senior software architect. Given a user request, produce a "
-        "detailed project plan in Markdown with: Overview, Tech Stack, Features list, "
-        "API Endpoints, Database Schema outline, and Milestones. Be specific and thorough."
+        "detailed project plan in Markdown. Use these exact headings: Overview, "
+        "Tech Stack, Features, API Endpoints, Database Schema, Acceptance Tests, "
+        "Local Startup, and Milestones. Under API Endpoints declare at least three "
+        "concrete METHOD /path operations. Be specific and thorough."
     )
 
     async def run(self, ctx: PipelineContext) -> PipelineContext:
         ctx.status = PipelineStatus.PLANNING
         ctx.target = detect_target(ctx.user_prompt)
+        error_context = ""
+        if ctx.errors and "Planner validation" in ctx.errors[-1]:
+            error_context = (
+                "\n\nPREVIOUS VALIDATION FAILURE — correct every missing item "
+                f"in this replacement plan:\n{ctx.errors[-1]}"
+            )
         plan = await self._call_nim(
             user_message=(
                 "Plan a full-stack application for the user's product idea below. "
@@ -402,16 +759,22 @@ class PlannerAgent(BaseAgent):
                 f"PRODUCT BASELINE:\n{DEFAULT_PRODUCT_BASELINE}\n\n"
                 f"VISUAL QUALITY BASELINE:\n{DEFAULT_VISUAL_QUALITY_BASELINE}\n\n"
                 f"DELIVERY TARGET: {ctx.target}\n"
-                "Plan for this exact platform and its deployment requirements.\n\n"
+                "Plan for this exact platform and its deployment requirements. "
+                "Return Markdown with all of these exact headings: Overview, Tech Stack, "
+                "Features, API Endpoints, Database Schema, Acceptance Tests, Local Startup, "
+                "Milestones. Include at least three lines formatted like `GET /api/v1/resource`.\n\n"
                 f"USER PRODUCT IDEA:\n{ctx.user_prompt}"
+                f"{error_context}"
             ),
             temperature=0.3,
             max_tokens=3000,
         )
         
-        plan_lower = plan.lower()
-        if "cannot fulfill" in plan_lower or "unable to" in plan_lower or "safety" in plan_lower or "violate" in plan_lower:
+        if _looks_like_model_refusal(plan):
              raise ValueError("NVIDIA AI Safety Filter Triggered: The upstream model refused to generate a plan for this prompt due to safety guidelines. Please try a different prompt.")
+        violations = validate_plan_contract(plan)
+        if violations:
+            raise ValueError("Planner validation failed: " + "; ".join(violations))
              
         ctx.set_artifact("PLAN.md", plan)
         ctx.add_message(AgentMessage(
@@ -450,17 +813,22 @@ class DesignerAgent(BaseAgent):
             temperature=0.5,
             max_tokens=3000,
         )
+        ctx.artifacts["_designer_last_attempt.json"] = design
         
         # Normalize harmless model presentation/schema variants at the
         # inference boundary before downstream agents consume the artifact.
         try:
             design_json = parse_design_tokens(design)
         except json.JSONDecodeError:
-            design_lower = design.lower()
-            if "cannot fulfill" in design_lower or "unable to" in design_lower or "safety" in design_lower or "violate" in design_lower:
+            if _looks_like_model_refusal(design):
                 raise ValueError("NVIDIA AI Safety Filter Triggered: The upstream model refused to generate content for this prompt due to safety guidelines. Please try a different prompt.")
             raise ValueError(f"Designer validation failed: Output must be valid JSON. (Got: {design[:50]}...)")
 
+        design_json = complete_design_tokens(json.dumps(design_json))
+        violations = validate_design_contract(design_json)
+        if violations:
+            raise ValueError("Designer validation failed: " + "; ".join(violations))
+        ctx.artifacts.pop("_designer_last_attempt.json", None)
         ctx.set_artifact("design_tokens.json", json.dumps(design_json, indent=2))
         # DESIGN.md: human-readable design spec artifact (expected by the
         # generated-project contract alongside design_tokens.json).
@@ -473,6 +841,23 @@ class DesignerAgent(BaseAgent):
         ))
         return ctx
 
+    def recover_validation_failure(
+        self, ctx: PipelineContext, error: ValueError
+    ) -> Optional[PipelineContext]:
+        if "Designer validation failed" not in str(error):
+            return None
+        raw_design = ctx.artifacts.pop("_designer_last_attempt.json", "")
+        design_json = complete_design_tokens(raw_design)
+        ctx.set_artifact("design_tokens.json", json.dumps(design_json, indent=2))
+        ctx.set_artifact("DESIGN_RECOVERY.json", json.dumps({
+            "strategy": "deterministic_neonbuild_baseline",
+            "reason": str(error),
+            "preserved_partial_output": bool(raw_design.strip()),
+        }, indent=2))
+        ctx.set_artifact("DESIGN.md", _design_markdown(design_json))
+        ctx.add_message(AgentMessage(from_role=self.role, to_role=AgentRole.FRONTEND, content=json.dumps(design_json), metadata={"artifact": "design_tokens.json", "recovered": True}))
+        return ctx
+
 
 class FrontendAgent(BaseAgent):
     role = AgentRole.FRONTEND
@@ -482,7 +867,11 @@ class FrontendAgent(BaseAgent):
         "You MUST ensure the UI exactly matches the premium design tokens provided. "
         "Apply the supplied Aurora Metal quality baseline, all responsive breakpoints, "
         "accessible interaction states, and polished loading/empty/error states. "
-        "Output only valid, runnable code with no placeholders."
+        "Build a real API-driven application, never demo data or simulated calls. Use only "
+        "React and browser APIs so the supplied Vite scaffold builds without undeclared packages. "
+        "The primary journey must read and mutate the FastAPI /api/v1 contract, include a real "
+        "data-entry form, and expose loading, empty, success, validation, and error states. "
+        "Output only valid, runnable code with no placeholders, TODOs, or fake interactions."
     )
 
     async def run(self, ctx: PipelineContext) -> PipelineContext:
@@ -509,7 +898,15 @@ class FrontendAgent(BaseAgent):
                 "Do not use DOM elements or Tailwind CSS. Output runnable TypeScript only."
             )
         else:
-            request = "Build the complete React frontend."
+            request = (
+                "Build the complete React frontend as one self-contained App.tsx. Use fetch with "
+                "const API_BASE = import.meta.env.VITE_API_URL || '/api/v1'. Implement at least "
+                "one real GET and one real POST/PATCH/DELETE in the primary user journey. Do not "
+                "use mock arrays, artificial delays, placeholder alerts, external icon packages, "
+                "or imports other than React. Include an inline SVG icon system if needed. Put "
+                "data-testid=\"primary-form\" on the main form and data-testid=\"primary-submit\" "
+                "on its submit button so the supplied browser QA can execute the journey."
+            )
         code = await self._call_nim(
             user_message=(
                 f"{request}\n\nPLAN:\n{plan}\n\n"
@@ -537,7 +934,7 @@ class FrontendAgent(BaseAgent):
               design_json = json.loads(design) if design else None
           except (json.JSONDecodeError, TypeError):
               design_json = None
-          violations = lint_frontend_design_tokens(code, design_json)
+          violations = validate_frontend_contract(code, design_json)
           if violations:
               raise ValueError("Frontend validation failed: design tokens not structurally applied -- " + "; ".join(violations))
           artifact_name = "frontend/App.tsx"
@@ -581,18 +978,22 @@ class BackendAgent(BaseAgent):
                 f"PREVIOUS ATTEMPT:\n{previous_attempt}"
             )
         code = await self._call_nim(
-            user_message=f"Build the complete FastAPI backend for:\n\n{plan}{repair_context}",
+            user_message=("Build the complete FastAPI backend for the plan below. It must expose "
+                          "at least five concrete routes under /api/v1 including health, auth, and "
+                          "persistent CRUD for the primary product resource. Use SQLAlchemy, Pydantic, "
+                          "CORS, environment-driven secrets, and a SQLite local default. The module "
+                          "must import and start on a clean host after installing backend/requirements.txt.\n\n"
+                          f"{plan}{repair_context}"),
             temperature=0.2,
             max_tokens=12000,
         )
         code = unwrap_generated_code(code)
-        try:
-            ast.parse(code)
-        except SyntaxError as exc:
+        violations = validate_backend_contract(code)
+        if violations:
             # Preserve the exact failed attempt for the next repair pass
             # without writing unvalidated code into the project workspace.
             ctx.artifacts["_backend_last_attempt.py"] = code
-            raise ValueError(f"Backend validation failed: generated Python is invalid: {exc}") from exc
+            raise ValueError("Backend validation failed: " + "; ".join(violations))
         ctx.artifacts.pop("_backend_last_attempt.py", None)
         ctx.set_artifact("backend/main.py", code)
         ctx.add_message(AgentMessage(
@@ -618,18 +1019,29 @@ class PreviewAgent(BaseAgent):
 
     async def run(self, ctx: PipelineContext) -> PipelineContext:
         html = unwrap_generated_code(await self._call_nim(
-            user_message=f"TARGET: {ctx.target}\nPLAN:\n{ctx.artifacts.get('PLAN.md','')}\nDESIGN:\n{ctx.artifacts.get('design_tokens.json','')}",
+            user_message=(
+                f"TARGET: {ctx.target}\nPLAN:\n{ctx.artifacts.get('PLAN.md','')}\n"
+                f"DESIGN:\n{ctx.artifacts.get('design_tokens.json','')}\n"
+                "IMPLEMENTED FRONTEND TO REPRODUCE FAITHFULLY:\n"
+                f"{ctx.artifacts.get('frontend/App.tsx', '')[:12000]}"
+            ),
             temperature=0.2, max_tokens=6000,
         ))
-        if "<!doctype html" not in html.lower() or "<script" not in html.lower() or "<style" not in html.lower():
-            raise ValueError("Preview validation failed: expected self-contained interactive HTML")
-        if re.search(r"(?:src|href)=[\"']https?://", html, re.I):
-            raise ValueError("Preview validation failed: remote preview dependency is not allowed")
+        ctx.artifacts["_preview_last_attempt.html"] = html
+        violations = validate_preview_html(html)
+        if violations:
+            raise ValueError("Preview validation failed: " + "; ".join(violations))
+        ctx.artifacts.pop("_preview_last_attempt.html", None)
         ctx.set_artifact("index.html", html)
         mode = "mobile_simulation" if ctx.target in {"flutter", "react-native"} else "interactive_web"
         ctx.set_artifact("PREVIEW_MODE.json", json.dumps({"mode": mode, "target": ctx.target, "native_runtime": False if mode == "mobile_simulation" else None}, indent=2))
         ctx.add_message(AgentMessage(from_role=self.role, to_role=AgentRole.QA, content="Interactive preview generated.", metadata={"artifact": "index.html", "mode": mode}))
         return ctx
+
+    def recover_validation_failure(
+        self, ctx: PipelineContext, error: ValueError
+    ) -> Optional[PipelineContext]:
+        return None
 
 
 class IntegrationAgent(BaseAgent):
@@ -646,6 +1058,17 @@ class IntegrationAgent(BaseAgent):
         frontend = ctx.artifacts.get("frontend/App.tsx", "")
         backend = ctx.artifacts.get("backend/main.py", "")
         plan = ctx.artifacts.get("PLAN.md", "")
+        violations = validate_fullstack_handoff(frontend, backend)
+        if violations:
+            raise ValueError("Integration validation failed: " + "; ".join(violations))
+
+        # A generated app must run on a clean host without Docker. Container
+        # files below are optional deployment conveniences only.
+        ctx.set_artifact("backend/requirements.txt", "fastapi>=0.115,<1\nuvicorn[standard]>=0.30,<1\nSQLAlchemy>=2,<3\npydantic[email]>=2,<3\npython-jose[cryptography]>=3.3,<4\npasslib[bcrypt]>=1.7,<2\npython-multipart>=0.0.9,<1\nhttpx>=0.27,<1\npytest>=8,<9\n")
+        ctx.set_artifact("backend/__init__.py", "\"\"\"Generated FastAPI application package.\"\"\"\n")
+        ctx.set_artifact("tests/conftest.py", "from pathlib import Path\nimport sys\nROOT = Path(__file__).resolve().parents[1]\nif str(ROOT) not in sys.path:\n    sys.path.insert(0, str(ROOT))\n")
+        ctx.set_artifact("RUN_LOCAL.md", "# Run locally (no Docker required)\n\n## Backend\n`python -m pip install -r backend/requirements.txt`\n\n`python -m uvicorn backend.main:app --reload --port 8000`\n\n## Frontend\n`cd frontend`\n\n`npm install`\n\n`npm run dev`\n\nThe Vite development server proxies `/api` to the backend. Copy each `.env.example` before supplying production secrets.\n")
+        repair_context = f"\nPREVIOUS INTEGRATION FAILURE TO FIX:\n{ctx.errors[-1]}" if ctx.errors and "Integration validation failed" in ctx.errors[-1] else ""
         
         # Generate docker-compose.yml
         docker_compose = await self._call_nim(
@@ -653,7 +1076,7 @@ class IntegrationAgent(BaseAgent):
                 f"Generate a complete docker-compose.yml for this project:\n\n"
                 f"PLAN:\n{plan[:2000]}\n\n"
                 f"FRONTEND (React/Next.js):\n{frontend[:1000]}\n\n"
-                f"BACKEND (FastAPI):\n{backend[:1000]}"
+                f"BACKEND (FastAPI):\n{backend[:1000]}\nThe services must be named frontend and backend.{repair_context}"
             ),
             temperature=0.2,
             max_tokens=3000,
@@ -665,7 +1088,7 @@ class IntegrationAgent(BaseAgent):
         env_example = await self._call_nim(
             user_message=(
                 f"Generate a complete .env.example file for this project:\n\n"
-                f"PLAN:\n{plan[:2000]}"
+                f"PLAN:\n{plan[:2000]}\nInclude API_URL, DATABASE_URL, and SECRET_KEY with safe example values.{repair_context}"
             ),
             temperature=0.2,
             max_tokens=1000,
@@ -696,6 +1119,9 @@ class IntegrationAgent(BaseAgent):
         )
         backend_dockerfile = unwrap_generated_code(backend_dockerfile)
         ctx.set_artifact("backend/Dockerfile", backend_dockerfile)
+        integration_violations = validate_integration_artifacts(ctx.artifacts)
+        if integration_violations:
+            raise ValueError("Integration validation failed: " + "; ".join(integration_violations))
         
         ctx.add_message(AgentMessage(
             from_role=self.role,
@@ -716,6 +1142,37 @@ class QAAgent(BaseAgent):
     async def run(self, ctx: PipelineContext) -> PipelineContext:
         ctx.status = PipelineStatus.QA
         backend = ctx.artifacts.get("backend/main.py", "")
+        if ctx.errors and any(marker in ctx.errors[-1] for marker in ("Frontend production build failed", "Generated full-stack browser E2E failed")):
+            current_frontend = ctx.artifacts.get("frontend/App.tsx", "")
+            repaired_frontend = unwrap_generated_code(await self._call_nim(
+                user_message=("Repair this React App.tsx from the exact production build or full-stack browser failure. "
+                              "Use only React and browser APIs; preserve real GET and mutation calls, product "
+                              "behavior, responsive Aurora Metal styling, and all runtime states. Return only "
+                              f"the complete App.tsx.\n\nSOURCE:\n{current_frontend}\n\nBUILD FAILURE:\n{ctx.errors[-1]}"),
+                system_prompt=FrontendAgent.SYSTEM_PROMPT, temperature=0.1, max_tokens=10000,
+            ))
+            try:
+                design_json = json.loads(ctx.artifacts.get("design_tokens.json", "{}"))
+            except json.JSONDecodeError:
+                design_json = None
+            frontend_violations = validate_frontend_contract(repaired_frontend, design_json)
+            if frontend_violations:
+                raise ValueError("Frontend production build repair failed validation: " + "; ".join(frontend_violations))
+            ctx.set_artifact("frontend/App.tsx", repaired_frontend)
+
+        if ctx.errors and "Generated backend import failed" in ctx.errors[-1]:
+            repaired_backend = unwrap_generated_code(await self._call_nim(
+                user_message=("Repair this FastAPI module from the exact import/startup failure. Preserve all "
+                              "persistent CRUD, auth, CORS, validation, and /api/v1 routes. Use only dependencies "
+                              "listed in backend/requirements.txt. Return only complete Python.\n\n"
+                              f"SOURCE:\n{backend}\n\nIMPORT FAILURE:\n{ctx.errors[-1]}"),
+                system_prompt=BackendAgent.SYSTEM_PROMPT, temperature=0.1, max_tokens=12000,
+            ))
+            backend_violations = validate_backend_contract(repaired_backend)
+            if backend_violations:
+                raise ValueError("Backend import repair failed validation: " + "; ".join(backend_violations))
+            backend = repaired_backend
+            ctx.set_artifact("backend/main.py", backend)
         if ctx.target in {"flutter", "react-native"} and ctx.errors and "Mobile build verification failed" in ctx.errors[-1]:
             entry = "mobile/lib/main.dart" if ctx.target == "flutter" else "mobile/app/index.tsx"
             repaired = unwrap_generated_code(await self._call_nim(
@@ -755,32 +1212,66 @@ class QAAgent(BaseAgent):
                 raise ValueError(f"Self-healing backend repair is invalid Python: {exc}") from exc
             ctx.set_artifact("backend/main.py", backend)
 
+        if ctx.errors and "QA validation failed" in ctx.errors[-1]:
+            error_context += f"\n\nPREVIOUS QA CONTRACT FAILURE TO FIX:\n{ctx.errors[-1]}"
         tests = await self._call_nim(
             user_message=(
-                "Write complete pytest tests for this FastAPI backend. Include a small "
-                "smoke test for the primary health/readiness path and API tests for the "
-                "main user journey.\n\n"
-                f"BACKEND:\n{backend[:4000]}{error_context}"
+                "Write complete executable pytest tests for this FastAPI backend using FastAPI "
+                "TestClient or httpx. Include at least two tests: health/readiness and a real "
+                "create/read primary journey. Never use assert True, mocks, or placeholder tests.\n\n"
+                f"BACKEND:\n{backend[:10000]}{error_context}"
             ),
             temperature=0.2,
-            max_tokens=3000,
+            max_tokens=5000,
         )
         tests = unwrap_generated_code(tests)
-        try:
-            ast.parse(tests)
-        except SyntaxError as exc:
-            raise ValueError(f"QA validation failed: generated tests are invalid Python: {exc}") from exc
+        qa_violations = validate_qa_contract(tests)
+        if qa_violations:
+            raise ValueError("QA validation failed: " + "; ".join(qa_violations))
         ctx.set_artifact("tests/test_backend.py", tests)
         
         # Execution Loop (The Moat)
         if ctx.project_dir:
-            isolation = os.getenv("SANDBOX_ISOLATION") or (
-                "docker" if os.getenv("NIM_STRICT_MODE", "false").lower() in ("true", "1") else "auto"
-            )
+            # Inference strictness and local execution isolation are separate
+            # concerns. Never require Docker merely because live NIM is used.
+            isolation = os.getenv("SANDBOX_ISOLATION", "auto")
             executor = SandboxExecutor(ctx.project_dir, isolation=isolation)
             success, output = await executor.run_pytest_async("tests/test_backend.py")
             if not success:
                 raise ValueError(f"Pytest execution failed:\n{output}")
+
+            verification: Dict[str, Any] = {"pytest": "passed", "isolation": "host"}
+            project_root = Path(ctx.project_dir)
+            python_executable = shutil.which("python") or shutil.which("python3")
+            if python_executable:
+                imported, import_output = await run_host_command(
+                    [python_executable, "-c", "import backend.main; print('backend-import-ok')"],
+                    project_root,
+                    timeout=600,
+                )
+                verification["backend_import"] = "passed" if imported else "failed"
+                if not imported:
+                    raise ValueError(f"Generated backend import failed:\n{import_output}")
+
+            frontend_root = project_root / "frontend"
+            package_json = frontend_root / "package.json"
+            verify_generated = os.getenv("VERIFY_GENERATED_BUILDS", "true").lower() in {"1", "true", "yes"}
+            if ctx.target in {"web", "pwa"} and package_json.is_file() and verify_generated:
+                npm = shutil.which("npm")
+                if not npm:
+                    raise ValueError("Frontend production build failed: npm is unavailable on the QA worker")
+                installed, install_output = await run_host_command([npm, "install", "--ignore-scripts", "--no-audit", "--no-fund"], frontend_root, timeout=600)
+                if not installed:
+                    raise ValueError(f"Frontend dependency installation failed:\n{install_output}")
+                built, build_output = await run_host_command([npm, "run", "build"], frontend_root, timeout=600)
+                verification["frontend_production_build"] = "passed" if built else "failed"
+                if not built:
+                    raise ValueError(f"Frontend production build failed:\n{build_output}")
+                e2e_ok, e2e_output = await run_host_command([npm, "run", "e2e"], frontend_root, timeout=600)
+                verification["fullstack_browser_e2e"] = "passed" if e2e_ok else "failed"
+                if not e2e_ok:
+                    raise ValueError(f"Generated full-stack browser E2E failed:\n{e2e_output}")
+            ctx.set_artifact("BUILD_VERIFICATION.json", json.dumps(verification, indent=2))
 
         if ctx.target in {"flutter", "react-native"}:
             readiness = verify_mobile_build(ctx.project_dir, ctx.target, enabled=os.getenv("VERIFY_MOBILE_BUILDS", "true").lower() in {"1", "true", "yes"})
@@ -822,9 +1313,7 @@ class SeleniumQAAgent(BaseAgent):
         
         # Execute the Selenium E2E test script in the Sandbox
         if ctx.project_dir:
-            isolation = os.getenv("SANDBOX_ISOLATION") or (
-                "docker" if os.getenv("NIM_STRICT_MODE", "false").lower() in ("true", "1") else "auto"
-            )
+            isolation = os.getenv("SANDBOX_ISOLATION", "auto")
             executor = SandboxExecutor(ctx.project_dir, isolation=isolation)
             success, output = await executor.run_pytest_async("tests/test_e2e.py")
             if not success:
@@ -856,15 +1345,19 @@ class DevOpsAgent(BaseAgent):
         
         # Generate CI/CD pipeline
         ci_cd = await self._call_nim(
-            user_message=f"Create a complete GitHub Actions CI/CD pipeline for:\n\n{plan}",
+            user_message=("Create a complete GitHub Actions CI workflow. It must check out source, "
+                          "set up Python and Node, install backend and frontend dependencies, run "
+                          "pytest, run npm run build, and retain useful failure logs.\n\n" + plan),
             temperature=0.2,
             max_tokens=3000,
         )
-        ctx.set_artifact(".github/workflows/ci.yml", ci_cd)
+        ctx.set_artifact(".github/workflows/ci.yml", unwrap_generated_code(ci_cd))
         
         # Generate deployment checklist
         deployment_checklist = await self._call_nim(
-            user_message=f"Create a deployment checklist in Markdown for:\n\n{plan}",
+            user_message=("Create a deployment checklist covering database migrations, secret "
+                          "management, health checks, smoke tests, observability, backups, and an "
+                          "explicit rollback procedure.\n\n" + plan),
             temperature=0.3,
             max_tokens=2000,
         )
@@ -876,7 +1369,10 @@ class DevOpsAgent(BaseAgent):
             temperature=0.2,
             max_tokens=2000,
         )
-        ctx.set_artifact("docker-compose.prod.yml", docker_compose_prod)
+        ctx.set_artifact("docker-compose.prod.yml", unwrap_generated_code(docker_compose_prod))
+        devops_violations = validate_devops_artifacts(ctx.artifacts)
+        if devops_violations:
+            raise ValueError("DevOps validation failed: " + "; ".join(devops_violations))
 
         if ctx.target in {"flutter", "react-native"} and "BUILD_READINESS.json" not in ctx.artifacts:
             ctx.set_artifact("BUILD_READINESS.json", verify_mobile_build(ctx.project_dir, ctx.target, enabled=False).json())
@@ -925,16 +1421,58 @@ class AgentPipeline:
     # error fed back to the agent; any other exception fails the pipeline.
     MAX_AGENT_RETRIES = 3
 
-    async def _run_agent_with_retry(self, agent: BaseAgent, ctx: PipelineContext) -> PipelineContext:
+    @staticmethod
+    def _is_retryable_inference_error(error: Exception) -> bool:
+        """Retry transient live-gateway failures while retaining fatal failures."""
+        message = str(error).lower()
+        return any(marker in message for marker in (
+            "all configured omniroute routes failed",
+            "omniroute fallback circuit is open",
+            "timed out",
+            "connecterror",
+            "readerror",
+        ))
+
+    async def _run_agent_with_retry(
+        self,
+        agent: BaseAgent,
+        ctx: PipelineContext,
+        on_retry: Optional[Callable[[int, str, bool], Awaitable[None]]] = None,
+    ) -> PipelineContext:
+        errors_before = len(ctx.errors)
         for attempt in range(self.MAX_AGENT_RETRIES):
             try:
-                return await agent.run(ctx)
+                result = await agent.run(ctx)
+                if len(ctx.errors) > errors_before:
+                    ctx.recoveries.extend(ctx.errors[errors_before:])
+                    del ctx.errors[errors_before:]
+                return result
             except ValueError as ve:
                 if attempt == self.MAX_AGENT_RETRIES - 1:
+                    recovered = agent.recover_validation_failure(ctx, ve)
+                    if recovered is not None:
+                        ctx.recoveries.extend([*ctx.errors[errors_before:], str(ve)])
+                        del ctx.errors[errors_before:]
+                        if on_retry:
+                            await on_retry(attempt + 2, str(ve), True)
+                        return recovered
                     ctx.fail(f"{agent.role.value} validation completely failed: {ve}")
                     return ctx
                 ctx.errors.append(str(ve))
+                if on_retry:
+                    await on_retry(attempt + 2, str(ve), False)
             except Exception as exc:  # noqa: BLE001
+                if self._is_retryable_inference_error(exc) and attempt < self.MAX_AGENT_RETRIES - 1:
+                    ctx.errors.append(str(exc))
+                    if on_retry:
+                        await on_retry(attempt + 2, str(exc), False)
+                    # OmniRoute opens its circuit after a total route failure.
+                    # Wait through that window before reissuing an entire
+                    # stage; an immediate retry can only fail locally.
+                    backoff = float(os.getenv("INFERENCE_RETRY_BACKOFF_SECONDS", "35"))
+                    if backoff > 0:
+                        await asyncio.sleep(backoff)
+                    continue
                 ctx.fail(f"{agent.role.value} agent failed: {exc}")
                 return ctx
         return ctx  # unreachable; keeps type-checkers happy
@@ -968,12 +1506,22 @@ class AgentPipeline:
             if ctx.status == PipelineStatus.FAILED:
                 break
             yield {"event": "agent_start", "role": agent.role.value, "data": {}}
-            errors_before = len(ctx.errors)
-            ctx = await self._run_agent_with_retry(agent, ctx)
-            retry_errors = ctx.errors[errors_before:]
-            if ctx.status != PipelineStatus.FAILED:
-                for attempt, error in enumerate(retry_errors, start=1):
-                    yield {"event": "agent_retry", "role": agent.role.value, "data": {"attempt": attempt + 1, "reason": error[:500], "recovered": True}}
+            retry_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
+
+            async def report_retry(attempt: int, error: str, recovered: bool) -> None:
+                await retry_queue.put({"event": "agent_retry", "role": agent.role.value, "data": {"attempt": attempt, "reason": error[:500], "recovered": recovered}})
+
+            run_task = asyncio.create_task(self._run_agent_with_retry(agent, ctx, report_retry))
+            while not run_task.done():
+                get_retry = asyncio.create_task(retry_queue.get())
+                done, _ = await asyncio.wait({run_task, get_retry}, return_when=asyncio.FIRST_COMPLETED)
+                if get_retry in done:
+                    yield get_retry.result()
+                else:
+                    get_retry.cancel()
+            ctx = await run_task
+            while not retry_queue.empty():
+                yield retry_queue.get_nowait()
             if ctx.status == PipelineStatus.FAILED:
                 yield {
                     "event": "agent_error",
@@ -998,6 +1546,7 @@ class AgentPipeline:
                 "status": ctx.status.value,
                 "artifacts": list(ctx.artifacts.keys()),
                 "errors": ctx.errors,
+                "recoveries": ctx.recoveries,
                 "target": ctx.target,
             },
         }

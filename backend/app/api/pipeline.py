@@ -1,11 +1,12 @@
-"""Pipeline API — multi-agent generation. NVIDIA NIM exclusive (mock for smoke)."""
+"""Pipeline API — multi-agent generation via configured live inference."""
 from __future__ import annotations
-import os, uuid, json, asyncio, shutil, socket
+import os, uuid, json, asyncio, socket, tempfile, zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, or_
@@ -22,6 +23,12 @@ class NIMInferenceError(Exception):
     pass
 
 PIPELINE_RUN_COST = 1  # credits debited per pipeline run (EM-2: per-user ledger)
+
+
+def _deliverable_file(project_dir: Path, path: Path) -> bool:
+    """Exclude interpreter/test caches from artifact inventories and exports."""
+    relative = path.relative_to(project_dir)
+    return path.is_file() and "__pycache__" not in relative.parts and path.suffix not in {".pyc", ".pyo"}
 
 class PipelineRequest(BaseModel):
     prompt: str = Field(..., min_length=3)
@@ -154,7 +161,19 @@ async def _run_job_stream(job_id: str, prompt: str, project_dir: Path, use_mock:
         
         async for event in pipeline.stream_run(user_prompt=prompt, project_dir=str(project_dir)):
             await _append_event(job_id, event)
-            if event["event"] == "agent_done":
+            if event["event"] == "agent_start":
+                role = event.get("role", "agent")
+                await _update_job(job_id, phase=role, message=f"{role.replace('_', ' ').title()} is working")
+            elif event["event"] == "agent_retry":
+                role = event.get("role", "agent")
+                recovered = event.get("data", {}).get("recovered", False)
+                message = (
+                    f"{role.replace('_', ' ').title()} recovered with validated platform defaults"
+                    if recovered else
+                    f"{role.replace('_', ' ').title()} is repairing an incomplete result"
+                )
+                await _update_job(job_id, phase=role, message=message)
+            elif event["event"] == "agent_done":
                 artifacts = event["data"].get("artifacts", [])
                 status = event["data"].get("status", "running")
                 await _update_job(job_id, artifacts=artifacts, status=status)
@@ -189,8 +208,8 @@ async def _run_job_stream(job_id: str, prompt: str, project_dir: Path, use_mock:
                     )
                 
         for p in project_dir.rglob("*"):
-            if p.is_file():
-                rel = str(p.relative_to(project_dir))
+            if _deliverable_file(project_dir, p):
+                rel = p.relative_to(project_dir).as_posix()
                 if rel not in artifacts:
                     artifacts.append(rel)
                     
@@ -295,20 +314,25 @@ async def start_pipeline(
     return _status_response(job)
 
 @router.get("/stream/{job_id}")
-async def stream_job(job_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+async def stream_job(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    last_event_id: int = Header(0, alias="Last-Event-ID"),
+):
     job = await db.get(PipelineJob, job_id)
     if not job:
         raise HTTPException(404, "Job not found")
     _job_owner(job, current_user)
         
     async def event_generator():
-        last_event_id = 0
+        cursor = max(0, last_event_id)
         while True:
             async with AsyncSessionLocal() as stream_db:
-                events = (await stream_db.execute(select(PipelineEvent).where(PipelineEvent.job_id == job_id, PipelineEvent.id > last_event_id).order_by(PipelineEvent.id))).scalars().all()
+                events = (await stream_db.execute(select(PipelineEvent).where(PipelineEvent.job_id == job_id, PipelineEvent.id > cursor).order_by(PipelineEvent.id))).scalars().all()
                 current_job = await stream_db.get(PipelineJob, job_id)
             for event in events:
-                last_event_id = event.id
+                cursor = event.id
                 yield f"id: {event.id}\ndata: {json.dumps({'event': event.event_type, 'role': event.role, 'data': event.data})}\n\n"
             if current_job and current_job.status in {"complete", "failed"}:
                 break
@@ -342,8 +366,17 @@ async def export_job(job_id: str, db: AsyncSession = Depends(get_db), current_us
     if not project_dir or not os.path.exists(project_dir):
         raise HTTPException(404, "Project directory not found")
         
-    archive_path = shutil.make_archive(f"/tmp/{job_id}", "zip", project_dir)
-    return FileResponse(archive_path, filename=f"{job_id}.zip")
+    project_path = Path(project_dir).resolve()
+    archive_path = Path(tempfile.gettempdir()) / f"neonbuild-{job_id}-{uuid.uuid4().hex}.zip"
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in project_path.rglob("*"):
+            if _deliverable_file(project_path, path):
+                archive.write(path, path.relative_to(project_path).as_posix())
+    return FileResponse(
+        archive_path,
+        filename=f"{job_id}.zip",
+        background=BackgroundTask(archive_path.unlink, missing_ok=True),
+    )
 
 @router.get("/credits")
 async def get_credits(current_user: User = Depends(get_current_active_user)):

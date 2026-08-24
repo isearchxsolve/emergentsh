@@ -40,6 +40,19 @@ def test_pwa_scaffold_contains_install_and_offline_contract():
     assert "fetch" in files["frontend/public/sw.js"]
 
 
+def test_web_scaffold_is_a_complete_vite_tailwind_build_target():
+    files = scaffold_for("web", "Field Ops")
+    package = json.loads(files["frontend/package.json"])
+    assert package["scripts"]["build"] == "tsc -b && vite build"
+    assert "frontend/src/main.tsx" in files
+    assert "frontend/tsconfig.json" in files
+    assert "frontend/tailwind.config.js" in files
+    assert "frontend/.env.example" in files
+    assert "frontend/playwright.config.ts" in files
+    assert "frontend/e2e/fullstack.spec.ts" in files
+    assert package["scripts"]["e2e"] == "playwright test"
+
+
 def test_missing_toolchain_is_reported_not_misrepresented(monkeypatch, tmp_path):
     (tmp_path / "mobile").mkdir()
     monkeypatch.setattr("backend.mobile_targets.shutil.which", lambda _name: None)
@@ -56,7 +69,7 @@ class MobileClient:
         elif "expo router" in request:
             yield "import React from 'react';\nimport { SafeAreaView, Text } from 'react-native';\nexport default function Home(){return <SafeAreaView accessibilityLabel='Home'><Text>Ready</Text></SafeAreaView>}"
         else:
-            yield "<!doctype html><html><head><style>body{background:#07110d}</style></head><body><button onclick=\"this.textContent='Ready'\">Run</button><script>document.body.dataset.ready='true'</script></body></html>"
+            yield "<!doctype html><html><head><style>body{background:linear-gradient(#07110d,#111);box-shadow:0 0 20px #000}@media(max-width:600px){body{padding:8px}}</style></head><body><button onclick=\"this.textContent='Ready'\">Run</button><button>Save</button><script>document.body.dataset.ready='true'</script></body></html>"
 
 
 @pytest.mark.asyncio
