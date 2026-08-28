@@ -31,8 +31,19 @@ MANAGED_ARTIFACT_QUOTA_BYTES = int(os.getenv("EMERGENT_ARTIFACT_QUOTA_BYTES", st
 PIPELINE_RESERVATION_BYTES = int(os.getenv("EMERGENT_PIPELINE_RESERVATION_BYTES", str(25 * 1024 * 1024)))
 SINGLE_NODE_MODE = os.getenv("EMERGENT_SINGLE_NODE_MODE", "false").strip().lower() in {"true", "1", "yes", "on"}
 WORKER_CONCURRENCY = 1 if SINGLE_NODE_MODE else max(1, int(os.getenv("PIPELINE_WORKER_CONCURRENCY", "2")))
+_storage_mode = os.getenv("PLATFORM_ARTIFACT_STORAGE_MODE", "single_node").strip().lower()
+if _storage_mode not in {"single_node", "shared_filesystem"}:
+    raise RuntimeError("PLATFORM_ARTIFACT_STORAGE_MODE must be single_node or shared_filesystem")
 _default_object_root = r"D:\oioi-data\object-store\emergentsh-apps" if os.name == "nt" else "storage/managed_objects"
-OBJECT_STORE = ManagedObjectStore(os.getenv("EMERGENT_ARTIFACT_OBJECT_STORE_PATH", _default_object_root))
+if _storage_mode == "shared_filesystem":
+    _shared_root = os.getenv("PLATFORM_ARTIFACT_SHARED_ROOT", "").strip()
+    if not _shared_root:
+        raise RuntimeError("PLATFORM_ARTIFACT_SHARED_ROOT is required for shared_filesystem storage")
+    _default_object_root = str(Path(_shared_root) / "emergentsh-apps")
+OBJECT_STORE = ManagedObjectStore(
+    _default_object_root if _storage_mode == "shared_filesystem"
+    else os.getenv("EMERGENT_ARTIFACT_OBJECT_STORE_PATH", _default_object_root)
+)
 
 
 def _deliverable_file(project_dir: Path, path: Path) -> bool:

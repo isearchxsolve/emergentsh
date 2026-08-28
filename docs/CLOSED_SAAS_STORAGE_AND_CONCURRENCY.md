@@ -34,6 +34,14 @@ Their work directories are removed after
 the archive is committed. Previews and exports read from the authenticated archive;
 there is no public static preview mount.
 
+`PLATFORM_ARTIFACT_STORAGE_MODE=single_node` keeps this store on the laptop. Set
+`PLATFORM_ARTIFACT_STORAGE_MODE=shared_filesystem` and
+`PLATFORM_ARTIFACT_SHARED_ROOT=\\server\private-oioi-artifacts` to flip both apps
+to the same private shared filesystem, without changing object keys, database
+metadata, customer access, or API URLs. EmergentSH app archives use the
+`emergentsh-apps` subdirectory. Shared storage is only the storage-scale switch;
+each multi-worker deployment must also use the shared database configuration.
+
 ## Concurrent requests
 
 `PipelineJob` is a durable database queue. Every API replica claims work with an
