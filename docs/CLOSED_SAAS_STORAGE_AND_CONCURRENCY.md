@@ -42,6 +42,10 @@ This is safe for concurrent requests and restart recovery. Capacity is bounded, 
 unlimited: deploy more worker replicas only after sizing the provider/session quota
 and database connection pool.
 
+For a constrained single laptop, set `EMERGENT_SINGLE_NODE_MODE=true`. It
+overrides worker concurrency to one durable job at a time without changing the
+closed-SaaS model, compressed archive storage, or consumer-provider contract.
+
 ## Consumer endpoint contract
 
 The default consumer endpoint is `http://127.0.0.1:8190/v1` (or

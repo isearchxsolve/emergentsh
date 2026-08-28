@@ -28,7 +28,8 @@ GIB = 1024 ** 3
 # remainder of the 10 GiB platform envelope for OiiOii and operating headroom.
 MANAGED_ARTIFACT_QUOTA_BYTES = int(os.getenv("EMERGENT_ARTIFACT_QUOTA_BYTES", str(int(1.5 * GIB))))
 PIPELINE_RESERVATION_BYTES = int(os.getenv("EMERGENT_PIPELINE_RESERVATION_BYTES", str(25 * 1024 * 1024)))
-WORKER_CONCURRENCY = max(1, int(os.getenv("PIPELINE_WORKER_CONCURRENCY", "2")))
+SINGLE_NODE_MODE = os.getenv("EMERGENT_SINGLE_NODE_MODE", "false").strip().lower() in {"true", "1", "yes", "on"}
+WORKER_CONCURRENCY = 1 if SINGLE_NODE_MODE else max(1, int(os.getenv("PIPELINE_WORKER_CONCURRENCY", "2")))
 
 
 def _deliverable_file(project_dir: Path, path: Path) -> bool:
