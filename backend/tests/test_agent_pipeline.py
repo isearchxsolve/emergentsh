@@ -26,6 +26,7 @@ from backend.agent_pipeline import (
     validate_qa_contract,
     validate_integration_artifacts,
     validate_devops_artifacts,
+    evaluate_delivery_quality,
     parse_design_tokens,
     unwrap_generated_code,
 )
@@ -72,7 +73,7 @@ class FencedPipelineClient:
     async def chat_stream(self, messages, **_kwargs):
         system = messages[0]["content"].lower()
         if "software architect" in system:
-            yield "# Plan\n\n## Features\nPrimary journey.\n## API Endpoints\nGET /api/v1/items\nPOST /api/v1/items\nDELETE /api/v1/items/{id}\n## Database Schema\nItems table.\n## Acceptance Tests\nCRUD smoke test.\n## Local Startup\nRun backend and frontend."
+            yield "# Plan\n\n## Business Vision\nFlowForge is a focused item workflow for operators.\n## Primary User Journeys\nAn operator creates and reviews items.\n## Success Metrics\nA created item is visible on refresh.\n## Out of Scope\nThird-party marketplace integrations.\n## Permissions\nOperator roles own and authorize their items.\n## Features\nPrimary journey.\n## API Endpoints\nGET /api/v1/items\nPOST /api/v1/items\nDELETE /api/v1/items/{id}\n## Database Schema\nItems table.\n## Acceptance Tests\nCRUD smoke test.\n## Local Startup\nRun backend and frontend."
         elif "ui/ux designer" in system:
             yield '```json\n{"visual": {"colorPalette": {"primary": "#76B900"}, "fonts": {"body": "Inter"}}}\n```'
         elif "frontend engineer" in system:
@@ -107,6 +108,7 @@ async def test_pipeline_completes_with_common_model_presentation_variants() -> N
     assert ctx.artifacts["backend/main.py"].startswith("from fastapi")
     assert "def test_health" in ctx.artifacts["tests/test_backend.py"]
     assert "TestClient" in ctx.artifacts["tests/test_backend.py"]
+    assert json.loads(ctx.artifacts["QUALITY_GATE.json"])["passed"] is True
 
 
 class RepairingBackendClient:

@@ -60,7 +60,7 @@ product, audience, and any capabilities that are unique to that product.
 # the hues, but never the depth, hierarchy, responsiveness, or state coverage.
 DEFAULT_VISUAL_QUALITY_BASELINE = """
 Every generated user interface must meet the Aurora Metal quality bar by default:
-- use a premium, dimensional 2026 visual language: deep metallic surfaces,
+- use a premium, dimensional Green Lantern-inspired 2026 visual language: deep metallic surfaces,
   layered translucent glass, controlled emerald energy glows, and restrained
   magenta/fuchsia highlights for focus and delight;
 - establish a deliberate type scale, generous spatial rhythm, strong hierarchy,
@@ -74,6 +74,15 @@ Every generated user interface must meet the Aurora Metal quality bar by default
 
 If the user provides brand colors, adapt the palette while preserving this same
 level of metallic depth, luminous glass, interaction polish, and accessibility.
+""".strip()
+
+DEFAULT_VISION_QUALITY_CONTRACT = """
+Do product discovery on the user's behalf. Even for a terse prompt such as
+"build an app similar to Zoho", infer normal paid-product expectations, primary
+actors, core records, critical journeys, permissions, operational states, and
+success measures. Do not stop at a landing page or generic CRUD scaffold. Every
+deliverable must prove three verticals: premium pixel-level UI polish, complete
+business-vision coverage, and a secure, testable persistent backend.
 """.strip()
 
 
@@ -443,11 +452,48 @@ def validate_plan_contract(plan: str) -> List[str]:
         "database schema": ("database schema", "data model"),
         "acceptance tests": ("acceptance", "test strategy"),
         "local startup": ("local startup", "local development", "run locally"),
+        "business vision": ("business vision", "product vision"),
+        "primary user journeys": ("primary user journeys", "user journeys"),
+        "success metrics": ("success metrics", "success criteria"),
     }
     violations = [f"missing {label}" for label, aliases in required.items() if not any(alias in lowered for alias in aliases)]
     if len(re.findall(r"\b(?:get|post|put|patch|delete)\s+/", lowered)) < 3:
         violations.append("fewer than three concrete API endpoint declarations")
     return violations
+
+
+def validate_vision_coverage(plan: str, prompt: str) -> List[str]:
+    """Require product-discovery evidence instead of accepting a pretty CRUD shell."""
+    lowered = plan.lower()
+    violations: List[str] = []
+    for label, markers in {
+        "actors/personas": ("actor", "persona", "role"),
+        "business jobs": ("job to be done", "business outcome", "workflow"),
+        "ownership/permissions": ("permission", "authorization", "role-based"),
+        "scope boundary": ("out of scope", "non-goal", "non goal"),
+    }.items():
+        if not any(marker in lowered for marker in markers):
+            violations.append(f"vision contract missing {label}")
+    terms = [term.lower() for term in re.findall(r"[A-Za-z][A-Za-z0-9-]{3,}", prompt) if term.lower() not in {"build", "app", "similar", "with", "that", "from", "this"}]
+    if terms and not any(term in lowered for term in terms):
+        violations.append("plan does not visibly address the user product idea")
+    return violations
+
+
+def evaluate_delivery_quality(artifacts: Dict[str, str], prompt: str) -> Dict[str, Any]:
+    """One strict, machine-readable release gate for every generated product."""
+    plan = artifacts.get("PLAN.md", "")
+    try:
+        design = json.loads(artifacts.get("design_tokens.json", "{}"))
+    except json.JSONDecodeError:
+        design = {}
+    frontend, backend = artifacts.get("frontend/App.tsx", ""), artifacts.get("backend/main.py", "")
+    verticals = {
+        "premium_ui": validate_design_contract(design) + validate_frontend_contract(frontend, design) + validate_preview_html(artifacts.get("index.html", "")),
+        "business_vision": validate_plan_contract(plan) + validate_vision_coverage(plan, prompt) + validate_fullstack_handoff(frontend, backend),
+        "rigid_backend": validate_backend_contract(backend) + validate_qa_contract(artifacts.get("tests/test_backend.py", "")) + validate_integration_artifacts(artifacts) + validate_devops_artifacts(artifacts),
+    }
+    return {"contract_version": "premium-product-e2e-v1", "passed": not any(verticals.values()), "score": 100 if not any(verticals.values()) else 0, "verticals": {name: {"passed": not issues, "violations": issues} for name, issues in verticals.items()}}
 
 
 def validate_design_contract(design: Dict[str, Any]) -> List[str]:
@@ -770,7 +816,7 @@ class PlannerAgent(BaseAgent):
         "You are a senior software architect. Given a user request, produce a "
         "detailed project plan in Markdown. Use these exact headings: Overview, "
         "Tech Stack, Features, API Endpoints, Database Schema, Acceptance Tests, "
-        "Local Startup, and Milestones. Under API Endpoints declare at least three "
+        "Local Startup, Milestones, Business Vision, Primary User Journeys, Success Metrics, and Out of Scope. Under API Endpoints declare at least three "
         "concrete METHOD /path operations. Be specific and thorough."
     )
 
@@ -789,11 +835,12 @@ class PlannerAgent(BaseAgent):
                 "Apply the mandatory product baseline without asking the user to repeat it.\n\n"
                 f"PRODUCT BASELINE:\n{DEFAULT_PRODUCT_BASELINE}\n\n"
                 f"VISUAL QUALITY BASELINE:\n{DEFAULT_VISUAL_QUALITY_BASELINE}\n\n"
+                f"VISION QUALITY CONTRACT:\n{DEFAULT_VISION_QUALITY_CONTRACT}\n\n"
                 f"DELIVERY TARGET: {ctx.target}\n"
                 "Plan for this exact platform and its deployment requirements. "
                 "Return Markdown with all of these exact headings: Overview, Tech Stack, "
                 "Features, API Endpoints, Database Schema, Acceptance Tests, Local Startup, "
-                "Milestones. Include at least three lines formatted like `GET /api/v1/resource`.\n\n"
+                "Milestones, Business Vision, Primary User Journeys, Success Metrics, and Out of Scope. Include at least three lines formatted like `GET /api/v1/resource`.\n\n"
                 f"USER PRODUCT IDEA:\n{ctx.user_prompt}"
                 f"{error_context}"
             ),
@@ -803,7 +850,7 @@ class PlannerAgent(BaseAgent):
         
         if _looks_like_model_refusal(plan):
              raise ValueError("NVIDIA AI Safety Filter Triggered: The upstream model refused to generate a plan for this prompt due to safety guidelines. Please try a different prompt.")
-        violations = validate_plan_contract(plan)
+        violations = validate_plan_contract(plan) + validate_vision_coverage(plan, ctx.user_prompt)
         if violations:
             raise ValueError("Planner validation failed: " + "; ".join(violations))
              
@@ -1440,6 +1487,15 @@ class DevOpsAgent(BaseAgent):
         devops_violations = validate_devops_artifacts(ctx.artifacts)
         if devops_violations:
             raise ValueError("DevOps validation failed: " + "; ".join(devops_violations))
+
+        quality = evaluate_delivery_quality(ctx.artifacts, ctx.user_prompt)
+        ctx.set_artifact("QUALITY_GATE.json", json.dumps(quality, indent=2))
+        if not quality["passed"]:
+            failed = "; ".join(
+                f"{name}: {', '.join(result['violations'])}"
+                for name, result in quality["verticals"].items() if not result["passed"]
+            )
+            raise ValueError("Premium product quality gate failed: " + failed)
 
         if ctx.target in {"flutter", "react-native"} and "BUILD_READINESS.json" not in ctx.artifacts:
             ctx.set_artifact("BUILD_READINESS.json", verify_mobile_build(ctx.project_dir, ctx.target, enabled=False).json())
