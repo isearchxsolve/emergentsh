@@ -42,6 +42,24 @@ class UserUpdate(BaseModel):
     avatar_url: Optional[str] = None
 
 
+class PasswordChange(BaseModel):
+    current_password: str = Field(..., min_length=8)
+    new_password: str = Field(..., min_length=8)
+
+
+class ManagedUserCreate(UserCreate):
+    credits: int = Field(1000, ge=0)
+
+
+class ManagedUserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    username: Optional[str] = Field(None, min_length=3, max_length=100)
+    full_name: Optional[str] = None
+    is_active: Optional[bool] = None
+    credits: Optional[int] = Field(None, ge=0)
+    password: Optional[str] = Field(None, min_length=8)
+
+
 class UserResponse(UserBase):
     id: UUID
     is_active: bool

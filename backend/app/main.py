@@ -7,7 +7,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from backend.app.core.database import init_db, close_db
-from backend.app.core.auth import validate_secret_key
+from backend.app.core.auth import validate_secret_key, get_password_hash
+from backend.app.models import User
+from backend.app.core.database import AsyncSessionLocal
+from sqlalchemy import select
 from backend.app.api import projects, auth, credits, pipeline as pipeline_api
 
 @asynccontextmanager
@@ -15,6 +18,18 @@ async def lifespan(app: FastAPI):
     # EM-1 fail-closed boot: refuse to serve on a forgeable JWT signing key.
     validate_secret_key()
     await init_db()
+    # Closed SaaS bootstrap. The owner is the only account allowed to receive
+    # administrator privileges; customers are created through /api/auth/admin.
+    owner_email = os.getenv("OWNER_EMAIL", "").strip().lower()
+    owner_password = os.getenv("OWNER_INITIAL_PASSWORD", "")
+    if owner_email and owner_password:
+        async with AsyncSessionLocal() as db:
+            owner = (await db.execute(select(User).where(User.email == owner_email))).scalar_one_or_none()
+            if owner is None:
+                db.add(User(email=owner_email, username=os.getenv("OWNER_USERNAME", "owner"), full_name=os.getenv("OWNER_NAME", "Service Owner"), hashed_password=get_password_hash(owner_password), is_superuser=True))
+            else:
+                owner.is_superuser = True
+            await db.commit()
     worker = asyncio.create_task(pipeline_api.pipeline_worker_loop())
     yield
     worker.cancel()
@@ -30,9 +45,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(credits.router, prefix="/api")
 app.include_router(pipeline_api.router, prefix="/api")
-_preview = Path(os.getenv("PREVIEW_APPS_DIR", "preview_apps")).resolve()
-_preview.mkdir(parents=True, exist_ok=True)
-app.mount("/preview", StaticFiles(directory=str(_preview), html=True), name="preview")
+# Preview content is served only through the owner-scoped pipeline endpoint.
 
 @app.get("/")
 async def root():

@@ -1,19 +1,19 @@
 """Pipeline API — multi-agent generation via configured live inference."""
 from __future__ import annotations
-import os, uuid, json, asyncio, socket, tempfile, zipfile
+import os, uuid, json, asyncio, socket, tempfile, zipfile, hashlib, io, shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import StreamingResponse, FileResponse, Response
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, or_
 
-from backend.app.core.auth import get_current_active_user
+from backend.app.core.auth import get_current_active_user, get_owner_user
 from backend.app.core.database import AsyncSessionLocal, get_db
-from backend.app.models import CreditTransaction, PipelineEvent, PipelineJob, User
+from backend.app.models import CreditTransaction, PipelineEvent, PipelineJob, User, ManagedArtifact
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 _PREVIEW_ROOT = Path(os.getenv("PREVIEW_APPS_DIR", "preview_apps")).resolve()
@@ -23,6 +23,12 @@ class NIMInferenceError(Exception):
     pass
 
 PIPELINE_RUN_COST = 1  # credits debited per pipeline run (EM-2: per-user ledger)
+GIB = 1024 ** 3
+# Static platform allocation: EmergentSH is capped at 1.5 GiB, leaving the
+# remainder of the 10 GiB platform envelope for OiiOii and operating headroom.
+MANAGED_ARTIFACT_QUOTA_BYTES = int(os.getenv("EMERGENT_ARTIFACT_QUOTA_BYTES", str(int(1.5 * GIB))))
+PIPELINE_RESERVATION_BYTES = int(os.getenv("EMERGENT_PIPELINE_RESERVATION_BYTES", str(25 * 1024 * 1024)))
+WORKER_CONCURRENCY = max(1, int(os.getenv("PIPELINE_WORKER_CONCURRENCY", "2")))
 
 
 def _deliverable_file(project_dir: Path, path: Path) -> bool:
@@ -128,6 +134,40 @@ async def _append_event(job_id: str, event: Dict[str, Any]) -> None:
         await db.commit()
 
 
+def _archive_project(project_dir: Path) -> bytes:
+    """Create a compact in-memory ZIP; generated app source is text-heavy."""
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+        for path in project_dir.rglob("*"):
+            if _deliverable_file(project_dir, path):
+                archive.write(path, path.relative_to(project_dir).as_posix())
+    return output.getvalue()
+
+
+async def _persist_project_archive(job_id: str, project_dir: Path) -> Optional[ManagedArtifact]:
+    payload = _archive_project(project_dir)
+    if not payload:
+        return None
+    sha256 = hashlib.sha256(payload).hexdigest()
+    async with AsyncSessionLocal() as db:
+        job = await db.get(PipelineJob, job_id)
+        if not job:
+            return None
+        used = (await db.execute(select(ManagedArtifact.byte_size))).scalars().all()
+        already = (await db.execute(select(ManagedArtifact).where(ManagedArtifact.sha256 == sha256))).scalar_one_or_none()
+        if not already and sum(used) + len(payload) > MANAGED_ARTIFACT_QUOTA_BYTES:
+            raise RuntimeError("Managed artifact quota reached; retention cleanup is required before another build can finalize.")
+        artifact = already or ManagedArtifact(user_id=job.user_id, pipeline_job_id=job_id, name=f"{job_id}.zip", content_type="application/zip", sha256=sha256, byte_size=len(payload), payload=payload)
+        if not already:
+            db.add(artifact)
+        job.preview_url = f"/api/pipeline/preview/{job_id}/index.html"
+        job.project_dir = ""  # source is now retained in the managed archive, not a public disk tree.
+        job.reserved_bytes = 0
+        await db.commit(); await db.refresh(artifact)
+    shutil.rmtree(project_dir, ignore_errors=True)
+    return artifact
+
+
 async def _run_job_stream(job_id: str, prompt: str, project_dir: Path, use_mock: bool) -> None:
     client = None
     artifacts: List[str] = []
@@ -216,10 +256,13 @@ async def _run_job_stream(job_id: str, prompt: str, project_dir: Path, use_mock:
         if status == "failed":
             await _update_job(job_id, artifacts=artifacts, phase="failed", status="failed", preview_url=None, message="Pipeline failed")
         else:
-            await _update_job(job_id, artifacts=artifacts, phase="complete", status="complete", preview_url=f"/preview/{job_id}/", message=f"Build complete — {len(artifacts)} artifacts")
+            artifact = await _persist_project_archive(job_id, project_dir)
+            if artifact is None:
+                raise RuntimeError("No project archive was produced")
+            await _update_job(job_id, artifacts=artifacts, phase="complete", status="complete", preview_url=f"/api/pipeline/preview/{job_id}/index.html", message=f"Build complete — {len(artifacts)} artifacts; archived {artifact.byte_size} bytes")
     except Exception as e:
         await _append_event(job_id, {"event": "pipeline_error", "role": "orchestrator", "data": {"error": str(e)}})
-        await _update_job(job_id, status="failed", phase="failed", errors=[str(e)], message=f"Pipeline failed: {e}")
+        await _update_job(job_id, status="failed", phase="failed", errors=[str(e)], message=f"Pipeline failed: {e}", reserved_bytes=0)
     finally:
         if client is not None and hasattr(client, "close"):
             try:
@@ -251,13 +294,16 @@ async def _claim_and_run_job(job_id: str) -> bool:
 async def pipeline_worker_loop() -> None:
     """Replica-safe durable worker; atomic leases prevent duplicate execution."""
     interval = float(os.getenv("PIPELINE_WORKER_POLL_SECONDS", "1"))
+    running: set[asyncio.Task] = set()
     while True:
         try:
             now = datetime.utcnow()
             async with AsyncSessionLocal() as db:
-                ids = (await db.execute(select(PipelineJob.job_id).where(or_(PipelineJob.status == "queued", (PipelineJob.status == "running") & (PipelineJob.lease_expires_at < now))).order_by(PipelineJob.created_at).limit(4))).scalars().all()
-            for job_id in ids:
-                await _claim_and_run_job(job_id)
+                ids = (await db.execute(select(PipelineJob.job_id).where(or_(PipelineJob.status == "queued", (PipelineJob.status == "running") & (PipelineJob.lease_expires_at < now))).order_by(PipelineJob.created_at).limit(WORKER_CONCURRENCY))).scalars().all()
+            running = {task for task in running if not task.done()}
+            for job_id in ids[:max(0, WORKER_CONCURRENCY - len(running))]:
+                task = asyncio.create_task(_claim_and_run_job(job_id))
+                running.add(task)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -297,20 +343,22 @@ async def _debit_credits(db: AsyncSession, user: User, amount: int, description:
 @router.post("/run", response_model=PipelineStatusResponse)
 async def start_pipeline(
     req: PipelineRequest,
-    background: BackgroundTasks,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    used = (await db.execute(select(ManagedArtifact.byte_size))).scalars().all()
+    reserved = (await db.execute(select(PipelineJob.reserved_bytes).where(PipelineJob.status.in_(["queued", "running"])))).scalars().all()
+    if sum(used) + sum(reserved) + PIPELINE_RESERVATION_BYTES > MANAGED_ARTIFACT_QUOTA_BYTES:
+        raise HTTPException(507, "Managed storage is at its service allocation; retry after retention cleanup.")
     await _debit_credits(db, current_user, PIPELINE_RUN_COST, f"Pipeline run: {req.prompt[:80]}")
     
     job_id = uuid.uuid4().hex[:12]
     project_dir = _PREVIEW_ROOT / job_id
     project_dir.mkdir(parents=True, exist_ok=True)
     from backend.mobile_targets import detect_target
-    job = PipelineJob(job_id=job_id, user_id=current_user.id, prompt=req.prompt, project_dir=str(project_dir), use_mock=req.use_mock, target=detect_target(req.prompt))
+    job = PipelineJob(job_id=job_id, user_id=current_user.id, prompt=req.prompt, project_dir=str(project_dir), use_mock=req.use_mock, target=detect_target(req.prompt), reserved_bytes=PIPELINE_RESERVATION_BYTES)
     db.add(job)
     await db.flush()
-    background.add_task(_claim_and_run_job, job_id)
     return _status_response(job)
 
 @router.get("/stream/{job_id}")
@@ -362,9 +410,11 @@ async def export_job(job_id: str, db: AsyncSession = Depends(get_db), current_us
     if not job:
         raise HTTPException(404, "Job not found")
     _job_owner(job, current_user)
+    artifact = (await db.execute(select(ManagedArtifact).where(ManagedArtifact.pipeline_job_id == job_id))).scalar_one_or_none()
+    if artifact:
+        return Response(artifact.payload, media_type=artifact.content_type, headers={"Content-Disposition": f'attachment; filename="{artifact.name}"'})
     project_dir = job.project_dir
-    if not project_dir or not os.path.exists(project_dir):
-        raise HTTPException(404, "Project directory not found")
+    if not project_dir or not os.path.exists(project_dir): raise HTTPException(404, "Project archive not found")
         
     project_path = Path(project_dir).resolve()
     archive_path = Path(tempfile.gettempdir()) / f"neonbuild-{job_id}-{uuid.uuid4().hex}.zip"
@@ -377,6 +427,30 @@ async def export_job(job_id: str, db: AsyncSession = Depends(get_db), current_us
         filename=f"{job_id}.zip",
         background=BackgroundTask(archive_path.unlink, missing_ok=True),
     )
+
+
+@router.get("/preview/{job_id}/{member_path:path}")
+async def preview_member(job_id: str, member_path: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    job = await db.get(PipelineJob, job_id)
+    if not job: raise HTTPException(404, "Job not found")
+    _job_owner(job, current_user)
+    normalized = member_path.strip("/") or "index.html"
+    if ".." in Path(normalized).parts: raise HTTPException(400, "Invalid preview path")
+    artifact = (await db.execute(select(ManagedArtifact).where(ManagedArtifact.pipeline_job_id == job_id))).scalar_one_or_none()
+    if not artifact: raise HTTPException(404, "Preview is not archived yet")
+    try:
+        with zipfile.ZipFile(io.BytesIO(artifact.payload)) as archive:
+            data = archive.read(normalized)
+    except KeyError: raise HTTPException(404, "Preview file not found")
+    content_type = "text/html; charset=utf-8" if normalized.endswith(".html") else "text/plain; charset=utf-8"
+    return Response(data, media_type=content_type, headers={"Cache-Control": "private, no-store"})
+
+
+@router.get("/admin/history")
+async def admin_history(db: AsyncSession = Depends(get_db), _: User = Depends(get_owner_user)):
+    jobs = (await db.execute(select(PipelineJob).order_by(PipelineJob.created_at.desc()))).scalars().all()
+    archives = (await db.execute(select(ManagedArtifact))).scalars().all()
+    return {"jobs": [{"job_id": j.job_id, "user_id": j.user_id, "status": j.status, "prompt": j.prompt, "artifacts": j.artifacts, "preview_url": j.preview_url, "created_at": j.created_at} for j in jobs], "managed_storage_bytes": sum(a.byte_size for a in archives), "managed_storage_cap_bytes": MANAGED_ARTIFACT_QUOTA_BYTES}
 
 @router.get("/credits")
 async def get_credits(current_user: User = Depends(get_current_active_user)):

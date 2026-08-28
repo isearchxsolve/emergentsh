@@ -34,11 +34,11 @@ def test_explicit_omniroute_never_requires_nvidia_key(monkeypatch: pytest.Monkey
     assert isinstance(client, AsyncOmniRouteClient)
 
 
-def test_omniroute_stage_routes_use_multi_provider_defaults_and_overrides(
+def test_omniroute_stage_routes_use_consumer_pool_and_overrides(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert configured_omniroute_route("planner") == "auto/best-reasoning"
-    assert configured_omniroute_route("backend") == "auto/best-coding"
+    assert configured_omniroute_route("planner") == "chat/session-pool/auto"
+    assert configured_omniroute_route("backend") == "chat/session-pool/auto"
     monkeypatch.setenv("OMNIROUTE_BACKEND_ROUTE", "fusion-coder")
     assert configured_omniroute_route("backend") == "fusion-coder"
 

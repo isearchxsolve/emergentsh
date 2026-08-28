@@ -31,15 +31,14 @@ DEFAULT_MODEL = os.getenv("NIM_DEFAULT_MODEL", "meta/llama-3.1-8b-instruct")
 # 20130 is NeonBuild's canonical local OmniRoute listener. 20128 was the
 # legacy wrapper port and can remain occupied by an unrelated protected
 # process; defaulting to it recreates a split-brain gateway after restart.
-DEFAULT_OMNIROUTE_BASE_URL = os.getenv("OMNIROUTE_BASE_URL", "http://127.0.0.1:20130/v1")
+DEFAULT_OMNIROUTE_BASE_URL = os.getenv("OMNIROUTE_BASE_URL", "http://127.0.0.1:8190/v1")
 # These are OmniRoute *routes*, rather than a pinned NVIDIA model. Each route
 # is a provider-aware policy managed by OmniRoute, so it can use its ordered
 # upstream providers and credentials without NeonBuild knowing any provider
 # secrets. Keep the list deliberately short and proven: it is both the default
 # gateway health probe and the last-resort route fallback.
 DEFAULT_OMNIROUTE_MODELS = (
-    "auto/best-coding",
-    "auto/best-reasoning",
+    "chat/session-pool/auto",
 )
 
 # Stage routing lets the gateway apply the right cross-provider policy to the
@@ -47,17 +46,17 @@ DEFAULT_OMNIROUTE_MODELS = (
 # OMNIROUTE_FRONTEND_ROUTE=fusion-coder, without a code deployment. A route
 # can also be a concrete model where an operator intentionally wants that.
 DEFAULT_OMNIROUTE_ROUTES_BY_STAGE = {
-    "planner": "auto/best-reasoning",
-    "designer": "auto/best-reasoning",
+    "planner": "chat/session-pool/auto",
+    "designer": "chat/session-pool/auto",
     # The live Gemini lane is a stronger code-artifact producer than the
     # short-response general coding combo. AsyncOmniRouteClient still falls
     # through to the configured auto routes if this provider is unavailable.
-    "frontend": "gemini/gemini-3.6-flash",
-    "backend": "auto/best-coding",
-    "integration": "auto/best-coding",
-    "preview": "auto/best-coding",
-    "qa": "auto/best-coding",
-    "devops": "auto/best-coding",
+    "frontend": "chat/session-pool/auto",
+    "backend": "chat/session-pool/auto",
+    "integration": "chat/session-pool/auto",
+    "preview": "chat/session-pool/auto",
+    "qa": "chat/session-pool/auto",
+    "devops": "chat/session-pool/auto",
 }
 
 
@@ -115,8 +114,6 @@ class AsyncOmniRouteClient:
         cooldown_seconds: float = 30.0,
     ) -> None:
         self.api_key = (api_key or os.getenv("OMNIROUTE_API_KEY") or "").strip()
-        if not self.api_key:
-            raise ValueError("OmniRoute API key required. Set OMNIROUTE_API_KEY.")
         self.base_url = (base_url or DEFAULT_OMNIROUTE_BASE_URL).rstrip("/")
         self.models = models or _configured_omniroute_models()
         if not self.models:
@@ -132,7 +129,7 @@ class AsyncOmniRouteClient:
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             headers={
-                "Authorization": f"Bearer {self.api_key}",
+                **({"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}),
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             },
@@ -496,7 +493,7 @@ def configured_inference_provider() -> str:
     if requested not in {"auto", "omniroute", "nim"}:
         raise ValueError("INFERENCE_PROVIDER must be auto, omniroute, or nim")
     if requested == "auto":
-        return "omniroute" if os.getenv("OMNIROUTE_API_KEY", "").strip() else "nim"
+        return "omniroute" if os.getenv("OMNIROUTE_BASE_URL", "").strip() else "nim"
     return requested
 
 

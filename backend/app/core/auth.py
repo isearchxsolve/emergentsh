@@ -118,6 +118,8 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if user is None:
         raise credentials_exception
+    if payload.get("ver", 0) != user.auth_version:
+        raise credentials_exception
     return user
 
 
@@ -126,6 +128,16 @@ async def get_current_active_user(
 ) -> User:
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
+    return current_user
+
+
+async def get_owner_user(
+    current_user: User = Depends(get_current_active_user),
+) -> User:
+    """The sole supported administrative authority is the configured owner."""
+    owner_email = os.getenv("OWNER_EMAIL", "").strip().lower()
+    if not owner_email or current_user.email.lower() != owner_email or not current_user.is_superuser:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner access required")
     return current_user
 
 

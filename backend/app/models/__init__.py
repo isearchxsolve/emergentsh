@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, Integer, ForeignKey, Enum as SQLEnum, Boolean, JSON
+from sqlalchemy import Column, String, Text, DateTime, Integer, ForeignKey, Enum as SQLEnum, Boolean, JSON, LargeBinary
 from sqlalchemy.orm import relationship, declarative_base
 from datetime import datetime
 import uuid
@@ -62,6 +62,9 @@ class User(Base):
     avatar_url = Column(String(500), nullable=True)
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
+    # Incremented when an account is disabled or its password changes.  Tokens
+    # carry this value, allowing those operations to revoke every old session.
+    auth_version = Column(Integer, default=0, nullable=False)
     credits = Column(Integer, default=1000)
     github_id = Column(String(100), nullable=True, unique=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -191,6 +194,7 @@ class PipelineJob(Base):
     worker_id = Column(String(100), nullable=True, index=True)
     lease_expires_at = Column(DateTime, nullable=True, index=True)
     attempts = Column(Integer, nullable=False, default=0)
+    reserved_bytes = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False, onupdate=datetime.utcnow)
 
@@ -204,4 +208,19 @@ class PipelineEvent(Base):
     event_type = Column(String(100), nullable=False)
     role = Column(String(100), nullable=False)
     data = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ManagedArtifact(Base):
+    """Compressed, owner-scoped delivery artifact; never publicly mounted."""
+    __tablename__ = "managed_artifacts"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    pipeline_job_id = Column(String(32), ForeignKey("pipeline_jobs.job_id", ondelete="CASCADE"), nullable=True, index=True)
+    name = Column(String(255), nullable=False)
+    content_type = Column(String(100), nullable=False, default="application/zip")
+    sha256 = Column(String(64), nullable=False, unique=True, index=True)
+    byte_size = Column(Integer, nullable=False)
+    payload = Column(LargeBinary, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

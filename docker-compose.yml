@@ -52,8 +52,15 @@ services:
       NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
       NIM_BASE_URL: ${NIM_BASE_URL:-https://integrate.api.nvidia.com/v1}
       # Primary scalable gateway; OmniRoute owns NVIDIA key rotation.
-      OMNIROUTE_BASE_URL: ${OMNIROUTE_BASE_URL:-http://127.0.0.1:20128/v1}
-      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY}
+      # Consumer contract: OmniRoute exposes pooled chat and video routes at :8190.
+      OMNIROUTE_BASE_URL: ${OMNIROUTE_BASE_URL:-http://host.docker.internal:8190/v1}
+      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-}
+      OWNER_EMAIL: ${OWNER_EMAIL:?Set the sole service-owner email}
+      OWNER_INITIAL_PASSWORD: ${OWNER_INITIAL_PASSWORD:?Set the sole service-owner bootstrap password}
+      OWNER_USERNAME: ${OWNER_USERNAME:-owner}
+      EMERGENT_ARTIFACT_QUOTA_BYTES: ${EMERGENT_ARTIFACT_QUOTA_BYTES:-1610612736}
+      EMERGENT_PIPELINE_RESERVATION_BYTES: ${EMERGENT_PIPELINE_RESERVATION_BYTES:-26214400}
+      PIPELINE_WORKER_CONCURRENCY: ${PIPELINE_WORKER_CONCURRENCY:-2}
       OMNIROUTE_FALLBACK_ENABLED: ${OMNIROUTE_FALLBACK_ENABLED:-false}
       OMNIROUTE_FALLBACK_MODELS: ${OMNIROUTE_FALLBACK_MODELS:-nvidia/nvidia/nemotron-3-super-120b-a12b,nvidia/nvidia/nemotron-3-nano-30b-a3b,nvidia/meta/llama-3.1-8b-instruct}
       PIPELINE_WORKER_POLL_SECONDS: ${PIPELINE_WORKER_POLL_SECONDS:-1}
