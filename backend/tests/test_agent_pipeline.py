@@ -27,6 +27,7 @@ from backend.agent_pipeline import (
     validate_integration_artifacts,
     validate_devops_artifacts,
     evaluate_delivery_quality,
+    infer_product_blueprint,
     parse_design_tokens,
     unwrap_generated_code,
 )
@@ -109,6 +110,13 @@ async def test_pipeline_completes_with_common_model_presentation_variants() -> N
     assert "def test_health" in ctx.artifacts["tests/test_backend.py"]
     assert "TestClient" in ctx.artifacts["tests/test_backend.py"]
     assert json.loads(ctx.artifacts["QUALITY_GATE.json"])["passed"] is True
+    assert json.loads(ctx.artifacts["PRODUCT_BLUEPRINT.json"])["category"] == "custom_product"
+
+
+def test_terse_zoho_prompt_receives_business_suite_scaffold() -> None:
+    blueprint = infer_product_blueprint("Build an app similar to Zoho")
+    assert blueprint["category"] == "business_suite"
+    assert {"organizations", "contacts", "work items"}.issubset(blueprint["capabilities"])
 
 
 class RepairingBackendClient:

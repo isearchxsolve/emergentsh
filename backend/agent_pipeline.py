@@ -86,6 +86,21 @@ business-vision coverage, and a secure, testable persistent backend.
 """.strip()
 
 
+def infer_product_blueprint(prompt: str) -> Dict[str, Any]:
+    """Deterministic product floor for terse briefs; models refine it, never start empty."""
+    lowered = prompt.lower()
+    catalog = {
+        "business_suite": (("zoho", "crm", "erp", "business suite"), ["organizations", "contacts", "work items", "activity timeline", "search"], ["owner", "manager", "member"]),
+        "commerce": (("store", "commerce", "marketplace", "shop"), ["catalog", "cart", "orders", "inventory", "customer history"], ["customer", "operator", "administrator"]),
+        "booking": (("booking", "appointment", "reservation", "schedule"), ["availability", "booking", "confirmation", "calendar", "cancellation"], ["customer", "operator", "administrator"]),
+        "workspace": (("project", "task", "team", "workspace"), ["workspace", "records", "assignment", "activity timeline", "search"], ["owner", "member", "viewer"]),
+    }
+    for category, (markers, capabilities, roles) in catalog.items():
+        if any(marker in lowered for marker in markers):
+            return {"category": category, "capabilities": capabilities, "roles": roles, "discovery": "category baseline inferred from prompt"}
+    return {"category": "custom_product", "capabilities": ["primary records", "create/edit workflow", "activity timeline", "search", "settings"], "roles": ["owner", "member"], "discovery": "safe production baseline inferred from terse prompt"}
+
+
 # Generated projects always place the FastAPI application at backend/main.py.
 # Test modules are model-authored and may otherwise use an ambiguous bare
 # ``import main``; on a host running NeonBuild, that can resolve to the
@@ -823,6 +838,8 @@ class PlannerAgent(BaseAgent):
     async def run(self, ctx: PipelineContext) -> PipelineContext:
         ctx.status = PipelineStatus.PLANNING
         ctx.target = detect_target(ctx.user_prompt)
+        blueprint = infer_product_blueprint(ctx.user_prompt)
+        ctx.set_artifact("PRODUCT_BLUEPRINT.json", json.dumps(blueprint, indent=2))
         error_context = ""
         if ctx.errors and "Planner validation" in ctx.errors[-1]:
             error_context = (
@@ -836,6 +853,7 @@ class PlannerAgent(BaseAgent):
                 f"PRODUCT BASELINE:\n{DEFAULT_PRODUCT_BASELINE}\n\n"
                 f"VISUAL QUALITY BASELINE:\n{DEFAULT_VISUAL_QUALITY_BASELINE}\n\n"
                 f"VISION QUALITY CONTRACT:\n{DEFAULT_VISION_QUALITY_CONTRACT}\n\n"
+                f"INFERRED PRODUCT BLUEPRINT (mandatory baseline; refine rather than discard):\n{json.dumps(blueprint)}\n\n"
                 f"DELIVERY TARGET: {ctx.target}\n"
                 "Plan for this exact platform and its deployment requirements. "
                 "Return Markdown with all of these exact headings: Overview, Tech Stack, "
@@ -855,6 +873,7 @@ class PlannerAgent(BaseAgent):
             raise ValueError("Planner validation failed: " + "; ".join(violations))
              
         ctx.set_artifact("PLAN.md", plan)
+        ctx.set_artifact("ARCHITECTURE.md", "# Product Architecture\n\n" + json.dumps(blueprint, indent=2) + "\n\nThe plan, frontend, backend, QA, and deployment artifacts implement this baseline.\n")
         ctx.add_message(AgentMessage(
             from_role=self.role,
             to_role=AgentRole.DESIGNER,
@@ -956,6 +975,7 @@ class FrontendAgent(BaseAgent):
         ctx.status = PipelineStatus.BUILDING_FRONTEND
         design = ctx.artifacts.get("design_tokens.json", "")
         plan = ctx.artifacts.get("PLAN.md", "")
+        blueprint = ctx.artifacts.get("PRODUCT_BLUEPRINT.json", "{}")
         
         error_context = ""
         if ctx.errors and "Frontend validation" in ctx.errors[-1]:
@@ -998,7 +1018,7 @@ class FrontendAgent(BaseAgent):
         code = await self._call_nim(
             user_message=(
                 f"{request}\n\nPLAN:\n{plan}\n\n"
-                f"DESIGN TOKENS:\n{design}\n\n"
+                f"DESIGN TOKENS:\n{design}\n\nPRODUCT BLUEPRINT:\n{blueprint}\n\n"
                 "VISUAL DELIVERY: implement a premium Aurora Metal interface with deep metallic "
                 "glass surfaces, emerald energy and restrained fuchsia focus accents, deliberate "
                 "type hierarchy, responsive 390px-to-desktop layout, accessible focus states, and "
@@ -1065,6 +1085,7 @@ class BackendAgent(BaseAgent):
     async def run(self, ctx: PipelineContext) -> PipelineContext:
         ctx.status = PipelineStatus.BUILDING_BACKEND
         plan = ctx.artifacts.get("PLAN.md", "")
+        blueprint = ctx.artifacts.get("PRODUCT_BLUEPRINT.json", "{}")
         repair_context = ""
         if ctx.errors and "Backend validation failed" in ctx.errors[-1]:
             previous_attempt = ctx.artifacts.get("_backend_last_attempt.py", "")
@@ -1080,7 +1101,7 @@ class BackendAgent(BaseAgent):
                           "persistent CRUD for the primary product resource. Use SQLAlchemy, Pydantic, "
                           "CORS, environment-driven secrets, and a SQLite local default. The module "
                           "must import and start on a clean host after installing backend/requirements.txt.\n\n"
-                          f"{plan}{repair_context}"),
+                          f"PRODUCT BLUEPRINT:\n{blueprint}\n\nPLAN:\n{plan}{repair_context}"),
             temperature=0.2,
             max_tokens=12000,
         )
