@@ -28,7 +28,9 @@ The service uses a safe static allocation rather than two independent 10 GiB cap
 The total is 10 GiB. `EMERGENT_ARTIFACT_QUOTA_BYTES=1610612736` is enforced before
 queue admission (25 MiB reservation per pending/running job) and before final
 archive persistence. Completed applications are ZIP-compressed and stored as a
-database BLOB with SHA-256 deduplication. Their work directories are removed after
+content-addressed private object under `EMERGENT_ARTIFACT_OBJECT_STORE_PATH`, while
+the database records the owner, audit metadata, SHA-256, quota usage and object key.
+Their work directories are removed after
 the archive is committed. Previews and exports read from the authenticated archive;
 there is no public static preview mount.
 

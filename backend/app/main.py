@@ -18,6 +18,8 @@ async def lifespan(app: FastAPI):
     # EM-1 fail-closed boot: refuse to serve on a forgeable JWT signing key.
     validate_secret_key()
     await init_db()
+    if os.getenv("EMERGENT_MIGRATE_LEGACY_ARTIFACTS", "true").lower() in {"true", "1", "yes", "on"}:
+        await pipeline_api.migrate_legacy_managed_artifacts()
     # Closed SaaS bootstrap. The owner is the only account allowed to receive
     # administrator privileges; customers are created through /api/auth/admin.
     owner_email = os.getenv("OWNER_EMAIL", "").strip().lower()

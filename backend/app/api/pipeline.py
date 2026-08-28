@@ -14,6 +14,7 @@ from sqlalchemy import select, update, or_
 from backend.app.core.auth import get_current_active_user, get_owner_user
 from backend.app.core.database import AsyncSessionLocal, get_db
 from backend.app.models import CreditTransaction, PipelineEvent, PipelineJob, User, ManagedArtifact
+from backend.app.services.managed_object_store import ManagedObjectStore
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 _PREVIEW_ROOT = Path(os.getenv("PREVIEW_APPS_DIR", "preview_apps")).resolve()
@@ -30,6 +31,8 @@ MANAGED_ARTIFACT_QUOTA_BYTES = int(os.getenv("EMERGENT_ARTIFACT_QUOTA_BYTES", st
 PIPELINE_RESERVATION_BYTES = int(os.getenv("EMERGENT_PIPELINE_RESERVATION_BYTES", str(25 * 1024 * 1024)))
 SINGLE_NODE_MODE = os.getenv("EMERGENT_SINGLE_NODE_MODE", "false").strip().lower() in {"true", "1", "yes", "on"}
 WORKER_CONCURRENCY = 1 if SINGLE_NODE_MODE else max(1, int(os.getenv("PIPELINE_WORKER_CONCURRENCY", "2")))
+_default_object_root = r"D:\oioi-data\object-store\emergentsh-apps" if os.name == "nt" else "storage/managed_objects"
+OBJECT_STORE = ManagedObjectStore(os.getenv("EMERGENT_ARTIFACT_OBJECT_STORE_PATH", _default_object_root))
 
 
 def _deliverable_file(project_dir: Path, path: Path) -> bool:
@@ -149,7 +152,7 @@ async def _persist_project_archive(job_id: str, project_dir: Path) -> Optional[M
     payload = _archive_project(project_dir)
     if not payload:
         return None
-    sha256 = hashlib.sha256(payload).hexdigest()
+    sha256, object_key, _ = OBJECT_STORE.put(payload, suffix=".zip")
     async with AsyncSessionLocal() as db:
         job = await db.get(PipelineJob, job_id)
         if not job:
@@ -158,7 +161,7 @@ async def _persist_project_archive(job_id: str, project_dir: Path) -> Optional[M
         already = (await db.execute(select(ManagedArtifact).where(ManagedArtifact.sha256 == sha256))).scalar_one_or_none()
         if not already and sum(used) + len(payload) > MANAGED_ARTIFACT_QUOTA_BYTES:
             raise RuntimeError("Managed artifact quota reached; retention cleanup is required before another build can finalize.")
-        artifact = already or ManagedArtifact(user_id=job.user_id, pipeline_job_id=job_id, name=f"{job_id}.zip", content_type="application/zip", sha256=sha256, byte_size=len(payload), payload=payload)
+        artifact = already or ManagedArtifact(user_id=job.user_id, pipeline_job_id=job_id, name=f"{job_id}.zip", content_type="application/zip", sha256=sha256, byte_size=len(payload), object_key=object_key, payload=b"")
         if not already:
             db.add(artifact)
         job.preview_url = f"/api/pipeline/preview/{job_id}/index.html"
@@ -167,6 +170,25 @@ async def _persist_project_archive(job_id: str, project_dir: Path) -> Optional[M
         await db.commit(); await db.refresh(artifact)
     shutil.rmtree(project_dir, ignore_errors=True)
     return artifact
+
+
+async def migrate_legacy_managed_artifacts() -> int:
+    """Safely externalize old archive BLOBs after the object-store migration."""
+    migrated = 0
+    async with AsyncSessionLocal() as db:
+        artifacts = (await db.execute(select(ManagedArtifact).where(
+            (ManagedArtifact.object_key.is_(None)) & (ManagedArtifact.payload.is_not(None))
+        ))).scalars().all()
+        for artifact in artifacts:
+            if not artifact.payload:
+                continue
+            _, key, _ = OBJECT_STORE.put(bytes(artifact.payload), suffix=".zip")
+            artifact.object_key = key
+            artifact.payload = b""
+            migrated += 1
+        if migrated:
+            await db.commit()
+    return migrated
 
 
 async def _run_job_stream(job_id: str, prompt: str, project_dir: Path, use_mock: bool) -> None:
@@ -413,7 +435,12 @@ async def export_job(job_id: str, db: AsyncSession = Depends(get_db), current_us
     _job_owner(job, current_user)
     artifact = (await db.execute(select(ManagedArtifact).where(ManagedArtifact.pipeline_job_id == job_id))).scalar_one_or_none()
     if artifact:
-        return Response(artifact.payload, media_type=artifact.content_type, headers={"Content-Disposition": f'attachment; filename="{artifact.name}"'})
+        if artifact.object_key:
+            path = OBJECT_STORE.path_for(artifact.object_key)
+            if path.is_file():
+                return FileResponse(path, media_type=artifact.content_type, filename=artifact.name)
+        if artifact.payload:
+            return Response(artifact.payload, media_type=artifact.content_type, headers={"Content-Disposition": f'attachment; filename="{artifact.name}"'})
     project_dir = job.project_dir
     if not project_dir or not os.path.exists(project_dir): raise HTTPException(404, "Project archive not found")
         
@@ -440,7 +467,10 @@ async def preview_member(job_id: str, member_path: str, db: AsyncSession = Depen
     artifact = (await db.execute(select(ManagedArtifact).where(ManagedArtifact.pipeline_job_id == job_id))).scalar_one_or_none()
     if not artifact: raise HTTPException(404, "Preview is not archived yet")
     try:
-        with zipfile.ZipFile(io.BytesIO(artifact.payload)) as archive:
+        archive_payload = artifact.payload
+        if artifact.object_key:
+            archive_payload = OBJECT_STORE.path_for(artifact.object_key).read_bytes()
+        with zipfile.ZipFile(io.BytesIO(archive_payload)) as archive:
             data = archive.read(normalized)
     except KeyError: raise HTTPException(404, "Preview file not found")
     content_type = "text/html; charset=utf-8" if normalized.endswith(".html") else "text/plain; charset=utf-8"

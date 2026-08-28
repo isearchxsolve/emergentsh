@@ -60,6 +60,7 @@ services:
       OWNER_USERNAME: ${OWNER_USERNAME:-owner}
       EMERGENT_ARTIFACT_QUOTA_BYTES: ${EMERGENT_ARTIFACT_QUOTA_BYTES:-1610612736}
       EMERGENT_PIPELINE_RESERVATION_BYTES: ${EMERGENT_PIPELINE_RESERVATION_BYTES:-26214400}
+      EMERGENT_ARTIFACT_OBJECT_STORE_PATH: ${EMERGENT_ARTIFACT_OBJECT_STORE_PATH:-/data/object-store/emergentsh-apps}
       PIPELINE_WORKER_CONCURRENCY: ${PIPELINE_WORKER_CONCURRENCY:-2}
       # Enables the laptop-safe fallback: one durable app-generation job only.
       EMERGENT_SINGLE_NODE_MODE: ${EMERGENT_SINGLE_NODE_MODE:-false}
@@ -74,6 +75,7 @@ services:
     volumes:
       - ./backend:/app/backend
       - ./src:/app/src
+      - ${EMERGENT_DATA_ROOT:-D:/oioi-data}:/data
     depends_on:
       postgres:
         condition: service_healthy

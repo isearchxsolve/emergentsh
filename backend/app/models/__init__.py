@@ -222,5 +222,6 @@ class ManagedArtifact(Base):
     content_type = Column(String(100), nullable=False, default="application/zip")
     sha256 = Column(String(64), nullable=False, unique=True, index=True)
     byte_size = Column(Integer, nullable=False)
+    object_key = Column(String(600), nullable=True, unique=True, index=True)
     payload = Column(LargeBinary, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
