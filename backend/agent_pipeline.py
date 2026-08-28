@@ -495,18 +495,49 @@ def validate_vision_coverage(plan: str, prompt: str) -> List[str]:
     return violations
 
 
-def evaluate_delivery_quality(artifacts: Dict[str, str], prompt: str) -> Dict[str, Any]:
+def validate_mobile_contract(code: str, target: str, design_json: Optional[Dict[str, Any]] = None) -> List[str]:
+    lowered = code.lower()
+    violations: List[str] = []
+    if target == "flutter":
+        for label, marker in (("Material application", "materialapp"), ("semantic accessibility", "semantics"), ("responsive layout", "layoutbuilder"), ("real API call", "http"), ("data entry", "textfield")):
+            if marker not in lowered: violations.append(f"mobile contract missing {label}")
+    else:
+        for label, marker in (("safe area", "safeareaview"), ("semantic accessibility", "accessibility"), ("responsive layout", "dimensions"), ("real API call", "fetch("), ("data entry", "textinput")):
+            if marker not in lowered: violations.append(f"mobile contract missing {label}")
+    if not all(term in lowered for term in ("loading", "error")):
+        violations.append("mobile contract lacks loading/error states")
+    if "empty" not in lowered: violations.append("mobile contract lacks empty state")
+    if design_json and not any(color.lower() in lowered for color in extract_palette_colors(design_json)):
+        violations.append("mobile palette fidelity failure")
+    return violations
+
+
+def validate_mobile_integration_artifacts(artifacts: Dict[str, str], target: str) -> List[str]:
+    required = ("mobile/pubspec.yaml", "mobile/test/widget_test.dart", "mobile/.env.example") if target == "flutter" else ("mobile/package.json", "mobile/app.json", "mobile/.env.example")
+    violations = [f"mobile integration artifact missing {name}" for name in required if name not in artifacts]
+    if ".github/workflows/mobile-ci.yml" not in artifacts: violations.append("mobile CI artifact is missing")
+    return violations
+
+
+def evaluate_delivery_quality(artifacts: Dict[str, str], prompt: str, target: str = "web") -> Dict[str, Any]:
     """One strict, machine-readable release gate for every generated product."""
     plan = artifacts.get("PLAN.md", "")
     try:
         design = json.loads(artifacts.get("design_tokens.json", "{}"))
     except json.JSONDecodeError:
         design = {}
-    frontend, backend = artifacts.get("frontend/App.tsx", ""), artifacts.get("backend/main.py", "")
+    frontend = artifacts.get("frontend/App.tsx", "") if target in {"web", "pwa"} else artifacts.get("mobile/lib/main.dart" if target == "flutter" else "mobile/app/index.tsx", "")
+    backend = artifacts.get("backend/main.py", "")
+    ui_violations = validate_design_contract(design) + validate_preview_html(artifacts.get("index.html", ""))
+    handoff_violations = validate_fullstack_handoff(frontend, backend) if target in {"web", "pwa"} else []
+    if target in {"web", "pwa"}:
+        ui_violations += validate_frontend_contract(frontend, design)
+    else:
+        ui_violations += validate_mobile_contract(frontend, target, design)
     verticals = {
-        "premium_ui": validate_design_contract(design) + validate_frontend_contract(frontend, design) + validate_preview_html(artifacts.get("index.html", "")),
-        "business_vision": validate_plan_contract(plan) + validate_vision_coverage(plan, prompt) + validate_fullstack_handoff(frontend, backend),
-        "rigid_backend": validate_backend_contract(backend) + validate_qa_contract(artifacts.get("tests/test_backend.py", "")) + validate_integration_artifacts(artifacts) + validate_devops_artifacts(artifacts),
+        "premium_ui": ui_violations,
+        "business_vision": validate_plan_contract(plan) + validate_vision_coverage(plan, prompt) + handoff_violations,
+        "rigid_backend": validate_backend_contract(backend) + validate_qa_contract(artifacts.get("tests/test_backend.py", "")) + (validate_integration_artifacts(artifacts) if target in {"web", "pwa"} else validate_mobile_integration_artifacts(artifacts, target)) + validate_devops_artifacts(artifacts),
     }
     return {"contract_version": "premium-product-e2e-v1", "passed": not any(verticals.values()), "score": 100 if not any(verticals.values()) else 0, "verticals": {name: {"passed": not issues, "violations": issues} for name, issues in verticals.items()}}
 
@@ -989,15 +1020,15 @@ class FrontendAgent(BaseAgent):
         if ctx.target == "flutter":
             request = (
                 "Build the complete Flutter presentation layer as lib/main.dart. "
-                "Use Material 3, responsive LayoutBuilder patterns, semantic labels, "
-                "complete loading/empty/error states, and the supplied design tokens. "
+                "Use Material 3, responsive LayoutBuilder patterns, Semantics labels, "
+                "TextField data entry, the http package for a real API request, complete loading/empty/error states, and the supplied design tokens. "
                 "Declare a public const GeneratedApp widget. Output only runnable Dart."
             )
         elif ctx.target == "react-native":
             request = (
                 "Build the complete Expo Router React Native screen as app/index.tsx. "
                 "Use only React Native primitives and Expo-compatible packages, SafeAreaView, "
-                "responsive dimensions, accessibility labels, and complete state surfaces. "
+                "Dimensions responsive layout, accessibility labels, TextInput data entry, fetch against EXPO_PUBLIC_API_URL, and complete loading/empty/error states. "
                 "Do not use DOM elements or Tailwind CSS. Output runnable TypeScript only."
             )
         else:
@@ -1060,6 +1091,8 @@ class FrontendAgent(BaseAgent):
         for name, content in scaffold_for(ctx.target, "NeonBuild App").items():
             if name != artifact_name:
                 ctx.set_artifact(name, content)
+        if ctx.target in {"flutter", "react-native"}:
+            ctx.set_artifact("MOBILE_E2E_CONTRACT.md", "# Mobile E2E contract\n\nVerify the primary authenticated create/read journey on Android and iOS emulators: loading, validation, offline/error retry, empty state, successful mutation, accessibility labels, and phone layout.\n")
         ctx.set_artifact("TARGET.json", json.dumps({"target": ctx.target, "platforms": ["android", "ios"] if ctx.target in {"flutter", "react-native"} else ["web"]}, indent=2))
         ctx.add_message(AgentMessage(
             from_role=self.role,
@@ -1173,10 +1206,10 @@ class IntegrationAgent(BaseAgent):
 
     async def run(self, ctx: PipelineContext) -> PipelineContext:
         ctx.status = PipelineStatus.INTEGRATING
-        frontend = ctx.artifacts.get("frontend/App.tsx", "")
+        frontend = ctx.artifacts.get("frontend/App.tsx", "") if ctx.target in {"web", "pwa"} else ctx.artifacts.get("mobile/lib/main.dart" if ctx.target == "flutter" else "mobile/app/index.tsx", "")
         backend = ctx.artifacts.get("backend/main.py", "")
         plan = ctx.artifacts.get("PLAN.md", "")
-        violations = validate_fullstack_handoff(frontend, backend)
+        violations = validate_fullstack_handoff(frontend, backend) if ctx.target in {"web", "pwa"} else validate_mobile_contract(frontend, ctx.target)
         if violations:
             raise ValueError("Integration validation failed: " + "; ".join(violations))
 
@@ -1509,7 +1542,7 @@ class DevOpsAgent(BaseAgent):
         if devops_violations:
             raise ValueError("DevOps validation failed: " + "; ".join(devops_violations))
 
-        quality = evaluate_delivery_quality(ctx.artifacts, ctx.user_prompt)
+        quality = evaluate_delivery_quality(ctx.artifacts, ctx.user_prompt, ctx.target)
         ctx.set_artifact("QUALITY_GATE.json", json.dumps(quality, indent=2))
         if not quality["passed"]:
             failed = "; ".join(

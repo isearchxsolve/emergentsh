@@ -28,6 +28,7 @@ from backend.agent_pipeline import (
     validate_devops_artifacts,
     evaluate_delivery_quality,
     infer_product_blueprint,
+    validate_mobile_contract,
     parse_design_tokens,
     unwrap_generated_code,
 )
@@ -117,6 +118,11 @@ def test_terse_zoho_prompt_receives_business_suite_scaffold() -> None:
     blueprint = infer_product_blueprint("Build an app similar to Zoho")
     assert blueprint["category"] == "business_suite"
     assert {"organizations", "contacts", "work items"}.issubset(blueprint["capabilities"])
+
+
+def test_react_native_quality_contract_requires_real_mobile_product_evidence() -> None:
+    source = "import {SafeAreaView,TextInput,Dimensions} from 'react-native'; async function load(){return fetch('/api/v1/items')} const loading='loading'; const error='error'; const empty='empty'; const green='#34D399'; export default function App(){return <SafeAreaView accessibilityLabel='App'><TextInput /></SafeAreaView>}"
+    assert validate_mobile_contract(source, "react-native", {"colors": {"primary": "#34D399"}}) == []
 
 
 class RepairingBackendClient:
