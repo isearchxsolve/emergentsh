@@ -195,6 +195,7 @@ class PipelineJob(Base):
     lease_expires_at = Column(DateTime, nullable=True, index=True)
     attempts = Column(Integer, nullable=False, default=0)
     reserved_bytes = Column(Integer, nullable=False, default=0)
+    archive_sha256 = Column(String(64), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False, onupdate=datetime.utcnow)
 

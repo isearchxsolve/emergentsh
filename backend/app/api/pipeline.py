@@ -164,6 +164,9 @@ async def _persist_project_archive(job_id: str, project_dir: Path) -> Optional[M
         artifact = already or ManagedArtifact(user_id=job.user_id, pipeline_job_id=job_id, name=f"{job_id}.zip", content_type="application/zip", sha256=sha256, byte_size=len(payload), object_key=object_key, payload=b"")
         if not already:
             db.add(artifact)
+        # Identical archives intentionally deduplicate to one object/catalog row;
+        # each job keeps the content hash that authorizes its own delivery.
+        job.archive_sha256 = sha256
         job.preview_url = f"/api/pipeline/preview/{job_id}/index.html"
         job.project_dir = ""  # source is now retained in the managed archive, not a public disk tree.
         job.reserved_bytes = 0
@@ -363,6 +366,13 @@ async def _debit_credits(db: AsyncSession, user: User, amount: int, description:
     await db.flush()
 
 
+async def _archive_for_job(db: AsyncSession, job: PipelineJob) -> Optional[ManagedArtifact]:
+    artifact = (await db.execute(select(ManagedArtifact).where(ManagedArtifact.pipeline_job_id == job.job_id))).scalar_one_or_none()
+    if artifact is None and job.archive_sha256:
+        artifact = (await db.execute(select(ManagedArtifact).where(ManagedArtifact.sha256 == job.archive_sha256))).scalar_one_or_none()
+    return artifact
+
+
 @router.post("/run", response_model=PipelineStatusResponse)
 async def start_pipeline(
     req: PipelineRequest,
@@ -433,7 +443,7 @@ async def export_job(job_id: str, db: AsyncSession = Depends(get_db), current_us
     if not job:
         raise HTTPException(404, "Job not found")
     _job_owner(job, current_user)
-    artifact = (await db.execute(select(ManagedArtifact).where(ManagedArtifact.pipeline_job_id == job_id))).scalar_one_or_none()
+    artifact = await _archive_for_job(db, job)
     if artifact:
         if artifact.object_key:
             path = OBJECT_STORE.path_for(artifact.object_key)
@@ -464,7 +474,7 @@ async def preview_member(job_id: str, member_path: str, db: AsyncSession = Depen
     _job_owner(job, current_user)
     normalized = member_path.strip("/") or "index.html"
     if ".." in Path(normalized).parts: raise HTTPException(400, "Invalid preview path")
-    artifact = (await db.execute(select(ManagedArtifact).where(ManagedArtifact.pipeline_job_id == job_id))).scalar_one_or_none()
+    artifact = await _archive_for_job(db, job)
     if not artifact: raise HTTPException(404, "Preview is not archived yet")
     try:
         archive_payload = artifact.payload
