@@ -1,9 +1,9 @@
-"""OpenAI-compatible inference transports for NVIDIA NIM and OmniRoute.
+"""OpenAI-compatible inference transports with OmniRoute as the consumer boundary.
 
-OmniRoute can be selected as the primary scalable gateway, allowing it to own
-NVIDIA key rotation and upstream capacity. Direct NIM remains available for
-development or emergency operation. Credentials stay in environment variables
-and are never written to application state or logs.
+The SaaS pipeline must never select an upstream provider. OmniRoute owns
+provider credentials, route selection, sessions, and capacity; the legacy NIM
+client remains importable only for isolated developer tests and is not exposed
+by the application inference factory.
 """
 
 from __future__ import annotations
@@ -483,18 +483,20 @@ class AsyncNIMClient:
 
 
 def get_nim_client() -> AsyncNIMClient:
-    """Factory used by FastAPI dependency injection."""
-    return AsyncNIMClient()
+    """Retired FastAPI factory kept only as an explicit failure for old callers."""
+    raise RuntimeError("direct NVIDIA NIM is retired for EmergentSH application execution; use get_inference_client()")
 
 
 def configured_inference_provider() -> str:
-    """Resolve the provider without silently downgrading a configured gateway."""
-    requested = os.getenv("INFERENCE_PROVIDER", "auto").strip().lower()
-    if requested not in {"auto", "omniroute", "nim"}:
-        raise ValueError("INFERENCE_PROVIDER must be auto, omniroute, or nim")
-    if requested == "auto":
-        return "omniroute" if os.getenv("OMNIROUTE_BASE_URL", "").strip() else "nim"
-    return requested
+    """Return the sole supported SaaS inference transport or fail closed.
+
+    ``auto`` is retained as a harmless compatibility spelling, but it no
+    longer means "choose a direct provider when a gateway variable is absent".
+    """
+    requested = os.getenv("INFERENCE_PROVIDER", "omniroute").strip().lower()
+    if requested not in {"auto", "omniroute"}:
+        raise ValueError("EmergentSH production inference must use INFERENCE_PROVIDER=omniroute")
+    return "omniroute"
 
 
 def get_inference_client():
@@ -503,7 +505,5 @@ def get_inference_client():
     In OmniRoute mode individual NVIDIA keys are deliberately neither accepted
     nor inspected; rotation belongs to the gateway.
     """
-    provider = configured_inference_provider()
-    if provider == "omniroute":
-        return AsyncOmniRouteClient()
-    return AsyncNIMClient()
+    configured_inference_provider()
+    return AsyncOmniRouteClient()

@@ -31,6 +31,11 @@ MANAGED_ARTIFACT_QUOTA_BYTES = int(os.getenv("EMERGENT_ARTIFACT_QUOTA_BYTES", st
 PIPELINE_RESERVATION_BYTES = int(os.getenv("EMERGENT_PIPELINE_RESERVATION_BYTES", str(25 * 1024 * 1024)))
 SINGLE_NODE_MODE = os.getenv("EMERGENT_SINGLE_NODE_MODE", "false").strip().lower() in {"true", "1", "yes", "on"}
 WORKER_CONCURRENCY = 1 if SINGLE_NODE_MODE else max(1, int(os.getenv("PIPELINE_WORKER_CONCURRENCY", "2")))
+
+
+def _production_runtime() -> bool:
+    """Whether this process serves customer work rather than local development."""
+    return os.getenv("APP_ENV", "development").strip().lower() in {"production", "prod"}
 _storage_mode = os.getenv("PLATFORM_ARTIFACT_STORAGE_MODE", "single_node").strip().lower()
 if _storage_mode not in {"single_node", "shared_filesystem"}:
     raise RuntimeError("PLATFORM_ARTIFACT_STORAGE_MODE must be single_node or shared_filesystem")
@@ -213,26 +218,18 @@ async def _run_job_stream(job_id: str, prompt: str, project_dir: Path, use_mock:
     try:
         from backend.agent_pipeline import AgentPipeline
         
-        inference_strict = os.getenv("INFERENCE_STRICT_MODE", os.getenv("NIM_STRICT_MODE", "false")).lower() in ("true", "1")
         from backend.app.services.nim_client import configured_inference_provider, get_inference_client
-        provider = configured_inference_provider()
-        provider_configured = bool(os.getenv("OMNIROUTE_API_KEY")) if provider == "omniroute" else bool(os.getenv("NIM_API_KEY") or os.getenv("NVIDIA_API_KEY") or os.getenv("NGC_API_KEY"))
-        if inference_strict:
-            if not provider_configured:
-                raise NIMInferenceError(f"{provider} credential is missing in strict mode.")
+        if use_mock:
+            if _production_runtime():
+                raise NIMInferenceError("mock inference is disabled for customer production work")
+            client = _make_mock_client()
+            await _update_job(job_id, message="Running with local development mock inference")
+        else:
+            # This factory is OmniRoute-only.  Gateway failure remains an honest
+            # job failure; it must never downgrade to direct NIM or a fake app.
+            provider = configured_inference_provider()
             client = get_inference_client()
             await _update_job(job_id, message=f"Running with live {provider}")
-        else:
-            if use_mock or not provider_configured:
-                client = _make_mock_client()
-                await _update_job(job_id, message="Running with mock inference")
-            else:
-                try:
-                    client = get_inference_client()
-                    await _update_job(job_id, message=f"Running with live {provider}")
-                except Exception as e:
-                    client = _make_mock_client()
-                    await _update_job(job_id, message=f"Inference unavailable ({e}); mock")
                     
         pipeline = AgentPipeline(client)
         
@@ -390,6 +387,8 @@ async def start_pipeline(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if req.use_mock and _production_runtime():
+        raise HTTPException(422, "use_mock is unavailable for customer production work")
     used = (await db.execute(select(ManagedArtifact.byte_size))).scalars().all()
     reserved = (await db.execute(select(PipelineJob.reserved_bytes).where(PipelineJob.status.in_(["queued", "running"])))).scalars().all()
     if sum(used) + sum(reserved) + PIPELINE_RESERVATION_BYTES > MANAGED_ARTIFACT_QUOTA_BYTES:

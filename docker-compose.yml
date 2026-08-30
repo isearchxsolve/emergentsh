@@ -48,6 +48,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       INFERENCE_PROVIDER: ${INFERENCE_PROVIDER:-omniroute}
       INFERENCE_STRICT_MODE: ${INFERENCE_STRICT_MODE:-true}
+      APP_ENV: ${APP_ENV:-production}
       NIM_API_KEY: ${NIM_API_KEY:-}
       NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
       NIM_BASE_URL: ${NIM_BASE_URL:-https://integrate.api.nvidia.com/v1}

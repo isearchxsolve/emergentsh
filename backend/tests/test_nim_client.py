@@ -34,6 +34,14 @@ def test_explicit_omniroute_never_requires_nvidia_key(monkeypatch: pytest.Monkey
     assert isinstance(client, AsyncOmniRouteClient)
 
 
+def test_direct_nim_configuration_is_rejected_for_application_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("INFERENCE_PROVIDER", "nim")
+    with pytest.raises(ValueError, match="must use INFERENCE_PROVIDER=omniroute"):
+        configured_inference_provider()
+
+
 def test_omniroute_stage_routes_use_consumer_pool_and_overrides(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -240,6 +240,12 @@ class TestPipelineRouteAuth:
             r = await client.get(f"/api/pipeline/status/{job_id}", headers=headers)
             assert r.status_code == 200, r.text
 
+    def test_production_runtime_is_detected_for_mock_rejection(self, monkeypatch):
+        from backend.app.api import pipeline as pipeline_api
+
+        monkeypatch.setenv("APP_ENV", "production")
+        assert pipeline_api._production_runtime() is True
+
     @pytest.mark.asyncio
     async def test_job_isolation_between_users(self, client_factory):
         async with client_factory() as client:

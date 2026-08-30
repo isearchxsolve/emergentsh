@@ -25,6 +25,7 @@ Requirements
     pip install -r requirements.txt
 """
 
+import os
 import sys
 
 from PySide6.QtWidgets import QApplication
@@ -34,6 +35,16 @@ from src.ui.theme import DARK_THEME_QSS
 
 
 def main() -> int:
+    # This native shell still contains the historical direct-provider workers.
+    # It is deliberately quarantined from production distribution until those
+    # workers are refactored to submit authenticated durable SaaS jobs.
+    runtime = os.getenv("APP_ENV", "development").strip().lower()
+    enabled = os.getenv("EMERGENT_ENABLE_LEGACY_DESKTOP", "false").strip().lower() in {"true", "1", "yes", "on"}
+    if runtime in {"production", "prod"} or not enabled:
+        raise RuntimeError(
+            "The legacy desktop agent is disabled. Use the authenticated SaaS pipeline; "
+            "direct provider workers are not a production execution path."
+        )
     app = QApplication(sys.argv)
     app.setApplicationName("NeonBuild")
     app.setOrganizationName("NeonBuild")

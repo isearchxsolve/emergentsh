@@ -12,11 +12,15 @@ from backend.app.models import User
 from backend.app.core.database import AsyncSessionLocal
 from sqlalchemy import select
 from backend.app.api import projects, auth, credits, pipeline as pipeline_api
+from backend.app.services.nim_client import configured_inference_provider
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # EM-1 fail-closed boot: refuse to serve on a forgeable JWT signing key.
     validate_secret_key()
+    # The service boundary is a production invariant, not an optional
+    # deployment preference.  A direct-NIM configuration prevents startup.
+    configured_inference_provider()
     await init_db()
     if os.getenv("EMERGENT_MIGRATE_LEGACY_ARTIFACTS", "true").lower() in {"true", "1", "yes", "on"}:
         await pipeline_api.migrate_legacy_managed_artifacts()
@@ -55,8 +59,8 @@ async def root():
 
 @app.get("/health")
 async def health():
-    provider = os.getenv("INFERENCE_PROVIDER", "auto").lower()
-    omni = bool(os.getenv("OMNIROUTE_API_KEY"))
-    nim = bool(os.getenv("NIM_API_KEY") or os.getenv("NVIDIA_API_KEY") or os.getenv("NGC_API_KEY"))
-    selected = ("omniroute" if omni else "nim") if provider == "auto" else provider
-    return {"status": "healthy", "inference_provider": selected, "inference_configured": omni if selected == "omniroute" else nim}
+    return {
+        "status": "healthy",
+        "inference_provider": configured_inference_provider(),
+        "inference_base_url": os.getenv("OMNIROUTE_BASE_URL", "http://127.0.0.1:8190/v1"),
+    }
