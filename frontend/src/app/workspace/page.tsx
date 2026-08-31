@@ -107,6 +107,7 @@ export default function WorkspacePage() {
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const [outputTarget, setOutputTarget] = useState('web');
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const loadCredits = useCallback(async (t: string) => {
     try {
@@ -136,6 +137,10 @@ export default function WorkspacePage() {
       setToken(stored);
       setAuthState('signed_in');
       loadCredits(stored);
+      fetch('/api/auth/me', { headers: authHeaders(stored) })
+        .then(response => response.ok ? response.json() : null)
+        .then(profile => setIsAdmin(profile?.is_superuser === true))
+        .catch(() => setIsAdmin(false));
     } else {
       setAuthState('signed_out');
     }
@@ -162,6 +167,7 @@ export default function WorkspacePage() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(LEGACY_TOKEN_KEY);
     setToken(null);
+    setIsAdmin(false);
     setCredits(null);
     setAuthState('signed_out');
     setShowSettings(false);
@@ -189,6 +195,10 @@ export default function WorkspacePage() {
       setAuthState('signed_in');
       setAuthPassword('');
       loadCredits(data.access_token);
+      fetch('/api/auth/me', { headers: authHeaders(data.access_token) })
+        .then(response => response.ok ? response.json() : null)
+        .then(profile => setIsAdmin(profile?.is_superuser === true))
+        .catch(() => setIsAdmin(false));
     } catch (err: any) {
       setAuthError(err.message || 'Sign-in failed');
     } finally {
@@ -589,6 +599,7 @@ export default function WorkspacePage() {
               <Zap className="w-3.5 h-3.5 text-amber-300 fill-current" />
               <span>{credits !== null ? credits : '...'} Credits</span>
             </div>
+            {isAdmin && <a href="/admin/customers" className="px-3 py-1.5 text-sm border border-cyan-300/30 bg-cyan-300/10 hover:bg-cyan-300/15 rounded-lg text-cyan-200 transition-colors">Activity Centre</a>}
             <button onClick={() => setShowAdminPanel(true)} className="px-3 py-1.5 text-sm border border-white/10 hover:bg-white/[0.05] rounded-lg text-dark-200 transition-colors">Account &amp; Admin</button>
             <button
               onClick={() => setShowSettings(s => !s)}
