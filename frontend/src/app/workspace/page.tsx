@@ -507,12 +507,6 @@ export default function WorkspacePage() {
               </p>
             )}
             <button
-              onClick={() => setShowAdminPanel(true)}
-              className="px-3 py-1.5 text-sm border border-white/10 hover:bg-white/[0.05] rounded-lg text-dark-200 transition-colors"
-            >
-              Account
-            </button>
-            <button
               type="submit"
               disabled={authBusy || !authUsername.trim() || !authPassword}
               className="w-full py-3.5 bg-gradient-to-r from-cyan-300 to-blue-400 hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-slate-950 font-semibold transition flex items-center justify-center gap-2 shadow-[0_0_26px_rgba(34,211,238,.16)]"
@@ -522,7 +516,6 @@ export default function WorkspacePage() {
             </button>
           </form>
       </div>
-      {showAdminPanel && token && <AdminPanel token={token} onClose={() => setShowAdminPanel(false)} />}
     </div>
     );
   }
@@ -596,6 +589,7 @@ export default function WorkspacePage() {
               <Zap className="w-3.5 h-3.5 text-amber-300 fill-current" />
               <span>{credits !== null ? credits : '...'} Credits</span>
             </div>
+            <button onClick={() => setShowAdminPanel(true)} className="px-3 py-1.5 text-sm border border-white/10 hover:bg-white/[0.05] rounded-lg text-dark-200 transition-colors">Account &amp; Admin</button>
             <button
               onClick={() => setShowSettings(s => !s)}
               className={`p-2 rounded-xl border transition ${showSettings ? 'text-white bg-white/[0.08] border-white/10' : 'text-slate-500 border-transparent hover:text-white hover:bg-white/[0.05]'}`}
@@ -871,6 +865,7 @@ export default function WorkspacePage() {
           </div>
         </div>
       )}
+      {showAdminPanel && token && <AdminPanel token={token} onClose={() => setShowAdminPanel(false)} />}
     </div>
   );
 }
