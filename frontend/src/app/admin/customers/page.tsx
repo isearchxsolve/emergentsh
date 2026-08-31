@@ -2,14 +2,15 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-const TOKEN_KEY = 'emergentsh_access_token';
+const TOKEN_KEY = 'neonbuild_token';
+const LEGACY_TOKEN_KEY = 'emergent_token';
 const stamp = (value: any) => value ? new Date(value).toLocaleString() : 'Not recorded';
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 async function read(response: Response) { const data = await response.json().catch(() => null); if (!response.ok) throw new Error(data?.detail || `HTTP ${response.status}`); return data; }
 
 export default function CustomerActivityPage() {
   const [token, setToken] = useState(''), [rows, setRows] = useState<any[]>([]), [query, setQuery] = useState(''), [selectedId, setSelectedId] = useState(''), [error, setError] = useState(''), [loading, setLoading] = useState(true);
-  const load = async () => { setLoading(true); setError(''); try { const access = localStorage.getItem(TOKEN_KEY) || ''; if (!access) throw new Error('Sign in as the owner before opening customer activity.'); setToken(access); const me = await read(await fetch('/api/auth/me', { headers: auth(access) })); if (!me.is_superuser) throw new Error('This page is restricted to the service owner.'); const history = await read(await fetch('/api/auth/admin/history', { headers: auth(access) })); setRows(history.customers ?? []); setSelectedId(current => current || history.customers?.[0]?.user?.id || ''); } catch (e: any) { setError(e.message); } finally { setLoading(false); } };
+  const load = async () => { setLoading(true); setError(''); try { const access = localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY) || ''; if (!access) throw new Error('Sign in as the owner before opening customer activity.'); setToken(access); const me = await read(await fetch('/api/auth/me', { headers: auth(access) })); if (!me.is_superuser) throw new Error('This page is restricted to the service owner.'); const history = await read(await fetch('/api/auth/admin/history', { headers: auth(access) })); setRows(history.customers ?? []); setSelectedId(current => current || history.customers?.[0]?.user?.id || ''); } catch (e: any) { setError(e.message); } finally { setLoading(false); } };
   useEffect(() => { load(); }, []);
   const visible = useMemo(() => rows.filter(row => `${row.user.username} ${row.user.email} ${row.user.full_name || ''}`.toLowerCase().includes(query.toLowerCase())), [rows, query]);
   const customer = rows.find(row => row.user.id === selectedId) || visible[0];
