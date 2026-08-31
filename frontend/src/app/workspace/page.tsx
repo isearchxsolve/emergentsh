@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Loader2, Copy, Download, Terminal, Layers, Zap, AlertCircle, MessageSquare, Monitor, Settings, LogOut, RefreshCw, ExternalLink, Check, Laptop, Tablet, Smartphone, Maximize2, X } from 'lucide-react';
+import AdminPanel from './AdminPanel';
 
 interface Message {
   id: string;
@@ -105,6 +106,7 @@ export default function WorkspacePage() {
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>('desktop');
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const [outputTarget, setOutputTarget] = useState('web');
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
 
   const loadCredits = useCallback(async (t: string) => {
     try {
@@ -505,6 +507,12 @@ export default function WorkspacePage() {
               </p>
             )}
             <button
+              onClick={() => setShowAdminPanel(true)}
+              className="px-3 py-1.5 text-sm border border-white/10 hover:bg-white/[0.05] rounded-lg text-dark-200 transition-colors"
+            >
+              Account
+            </button>
+            <button
               type="submit"
               disabled={authBusy || !authUsername.trim() || !authPassword}
               className="w-full py-3.5 bg-gradient-to-r from-cyan-300 to-blue-400 hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-slate-950 font-semibold transition flex items-center justify-center gap-2 shadow-[0_0_26px_rgba(34,211,238,.16)]"
@@ -513,8 +521,9 @@ export default function WorkspacePage() {
               Sign In
             </button>
           </form>
-        </div>
       </div>
+      {showAdminPanel && token && <AdminPanel token={token} onClose={() => setShowAdminPanel(false)} />}
+    </div>
     );
   }
 

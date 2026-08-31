@@ -9,7 +9,7 @@ from backend.app.core.database import get_db
 from backend.app.core.auth import (
     authenticate_user, create_access_token, get_current_active_user, get_owner_user, get_password_hash, verify_password
 )
-from backend.app.models import TokenRevocation, User
+from backend.app.models import Artifact, ManagedArtifact, PipelineJob, Project, TokenRevocation, User
 from backend.app.schemas import (
     UserCreate, UserUpdate, UserResponse, Token, TokenData, PasswordChange, ManagedUserCreate, ManagedUserUpdate,
 )
@@ -118,6 +118,31 @@ async def change_password(
 @router.get("/admin/users", response_model=list[UserResponse])
 async def admin_list_users(db: AsyncSession = Depends(get_db), _: User = Depends(get_owner_user)):
     return (await db.execute(select(User).order_by(User.created_at.desc()))).scalars().all()
+
+
+@router.get("/admin/history")
+async def admin_customer_history(db: AsyncSession = Depends(get_db), _: User = Depends(get_owner_user)):
+    """Owner-only full customer lineage without exposing any binary payload."""
+    users = (await db.execute(select(User).order_by(User.created_at.desc()))).scalars().all()
+    projects = (await db.execute(select(Project).order_by(Project.created_at.desc()))).scalars().all()
+    artifacts = (await db.execute(select(Artifact).order_by(Artifact.created_at.desc()))).scalars().all()
+    jobs = (await db.execute(select(PipelineJob).order_by(PipelineJob.created_at.desc()))).scalars().all()
+    archives = (await db.execute(select(ManagedArtifact))).scalars().all()
+    project_owner = {project.id: project.owner_id for project in projects}
+    by_owner = {user.id: {"user": {"id": user.id, "email": user.email, "username": user.username, "full_name": user.full_name, "is_active": user.is_active, "credits": user.credits}, "projects": [], "artifacts": [], "jobs": [], "deliveries": []} for user in users}
+    for project in projects:
+        by_owner[project.owner_id]["projects"].append({"id": project.id, "name": project.name, "status": project.status, "preview_url": project.preview_url, "created_at": project.created_at})
+    for artifact in artifacts:
+        owner_id = project_owner.get(artifact.project_id)
+        if owner_id in by_owner:
+            by_owner[owner_id]["artifacts"].append({"id": artifact.id, "project_id": artifact.project_id, "name": artifact.name, "path": artifact.path, "content_type": artifact.content_type, "size": artifact.size, "created_at": artifact.created_at})
+    for job in jobs:
+        if job.user_id in by_owner:
+            by_owner[job.user_id]["jobs"].append({"job_id": job.job_id, "status": job.status, "target": job.target, "prompt": job.prompt, "artifacts": job.artifacts, "preview_url": job.preview_url, "created_at": job.created_at})
+    for archive in archives:
+        if archive.user_id in by_owner:
+            by_owner[archive.user_id]["deliveries"].append({"id": archive.id, "job_id": archive.pipeline_job_id, "name": archive.name, "content_type": archive.content_type, "byte_size": archive.byte_size, "sha256": archive.sha256, "created_at": archive.created_at})
+    return {"customers": list(by_owner.values())}
 
 
 @router.post("/admin/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
