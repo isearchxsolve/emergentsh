@@ -194,51 +194,6 @@ export default function WorkspacePage() {
     }
   };
 
-  const handleRegister = async () => {
-    if (!authUsername.trim() || !authPassword || authBusy) return;
-    setAuthBusy(true);
-    setAuthError('');
-    try {
-      const credential = authUsername.trim();
-      const isEmail = credential.includes('@');
-      const email = isEmail ? credential.toLowerCase() : `${credential.toLowerCase()}@example.com`;
-      const generatedUsername = isEmail
-        ? credential.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 100)
-        : credential;
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email,
-          username: generatedUsername,
-          password: authPassword,
-        }),
-      });
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        throw new Error(readableApiError(detail, `Registration failed (${res.status})`));
-      }
-      // Registration succeeded — now sign in with the same credentials.
-      const body = new URLSearchParams({ username: credential, password: authPassword });
-      const loginRes = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body,
-      });
-      if (!loginRes.ok) throw new Error('Registered, but sign-in failed. Try signing in.');
-      const data = await loginRes.json();
-      localStorage.setItem(TOKEN_KEY, data.access_token);
-      setToken(data.access_token);
-      setAuthState('signed_in');
-      setAuthPassword('');
-      loadCredits(data.access_token);
-    } catch (err: any) {
-      setAuthError(err.message || 'Registration failed');
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
   // EM-6: EventSource cannot carry an Authorization header, so the SSE
   // stream is consumed with fetch + ReadableStream instead.
   const streamJob = useCallback(async (jobId: string, t: string) => {
@@ -525,7 +480,7 @@ export default function WorkspacePage() {
             </div>
             <div>
               <h1 className="text-xl font-semibold tracking-[-.03em] text-white">Neon<span className="text-cyan-300">Build</span> Studio</h1>
-              <p className="text-xs text-slate-500">Your multi-agent software team</p>
+              <p className="text-xs text-slate-500">Your multi-agent software team · credentials issued by the service owner</p>
             </div>
           </div>
           <form onSubmit={handleSignIn} className="space-y-4">
@@ -556,14 +511,6 @@ export default function WorkspacePage() {
             >
               {authBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4 rotate-180" />}
               Sign In
-            </button>
-            <button
-              type="button"
-              onClick={handleRegister}
-              disabled={authBusy || !authUsername.trim() || !authPassword}
-              className="w-full py-3.5 bg-white/[0.035] hover:bg-white/[0.065] disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-slate-300 font-medium transition border border-white/[0.08]"
-            >
-              Create account
             </button>
           </form>
         </div>
