@@ -9,7 +9,7 @@ from backend.app.core.database import get_db
 from backend.app.core.auth import (
     authenticate_user, create_access_token, get_current_active_user, get_owner_user, get_password_hash, verify_password
 )
-from backend.app.models import Artifact, ManagedArtifact, PipelineJob, Project, TokenRevocation, User
+from backend.app.models import Artifact, CreditTransaction, ManagedArtifact, Message, PipelineEvent, PipelineJob, Project, TokenRevocation, User
 from backend.app.schemas import (
     UserCreate, UserUpdate, UserResponse, Token, TokenData, PasswordChange, ManagedUserCreate, ManagedUserUpdate,
 )
@@ -128,8 +128,11 @@ async def admin_customer_history(db: AsyncSession = Depends(get_db), _: User = D
     artifacts = (await db.execute(select(Artifact).order_by(Artifact.created_at.desc()))).scalars().all()
     jobs = (await db.execute(select(PipelineJob).order_by(PipelineJob.created_at.desc()))).scalars().all()
     archives = (await db.execute(select(ManagedArtifact))).scalars().all()
+    credits = (await db.execute(select(CreditTransaction).order_by(CreditTransaction.created_at.desc()))).scalars().all()
+    messages = (await db.execute(select(Message).order_by(Message.created_at.desc()))).scalars().all()
+    events = (await db.execute(select(PipelineEvent).order_by(PipelineEvent.created_at.desc()))).scalars().all()
     project_owner = {project.id: project.owner_id for project in projects}
-    by_owner = {user.id: {"user": {"id": user.id, "email": user.email, "username": user.username, "full_name": user.full_name, "is_active": user.is_active, "credits": user.credits}, "projects": [], "artifacts": [], "jobs": [], "deliveries": []} for user in users}
+    by_owner = {user.id: {"user": {"id": user.id, "email": user.email, "username": user.username, "full_name": user.full_name, "is_active": user.is_active, "credits": user.credits, "created_at": user.created_at, "updated_at": user.updated_at, "last_login": user.last_login}, "projects": [], "artifacts": [], "jobs": [], "deliveries": [], "credit_activity": [], "message_activity": [], "pipeline_activity": []} for user in users}
     for project in projects:
         by_owner[project.owner_id]["projects"].append({"id": project.id, "name": project.name, "status": project.status, "preview_url": project.preview_url, "created_at": project.created_at})
     for artifact in artifacts:
@@ -142,6 +145,17 @@ async def admin_customer_history(db: AsyncSession = Depends(get_db), _: User = D
     for archive in archives:
         if archive.user_id in by_owner:
             by_owner[archive.user_id]["deliveries"].append({"id": archive.id, "job_id": archive.pipeline_job_id, "name": archive.name, "content_type": archive.content_type, "byte_size": archive.byte_size, "sha256": archive.sha256, "created_at": archive.created_at})
+    for credit in credits:
+        if credit.user_id in by_owner:
+            by_owner[credit.user_id]["credit_activity"].append({"id": credit.id, "amount": credit.amount, "type": credit.transaction_type, "description": credit.description, "project_id": credit.project_id, "created_at": credit.created_at})
+    for message in messages:
+        if message.user_id in by_owner:
+            by_owner[message.user_id]["message_activity"].append({"id": message.id, "project_id": message.project_id, "role": message.role, "content": message.content, "agent_role": message.agent_role, "created_at": message.created_at})
+    job_owner = {job.job_id: job.user_id for job in jobs}
+    for event in events:
+        owner_id = job_owner.get(event.job_id)
+        if owner_id in by_owner:
+            by_owner[owner_id]["pipeline_activity"].append({"id": event.id, "job_id": event.job_id, "type": event.event_type, "role": event.role, "data": event.data, "created_at": event.created_at})
     return {"customers": list(by_owner.values())}
 
 
@@ -164,6 +178,14 @@ async def admin_update_user(user_id: str, body: ManagedUserUpdate, db: AsyncSess
     if user.id == owner.id and (body.is_active is False or body.email is not None or body.username is not None):
         raise HTTPException(400, "The owner identity cannot be disabled or renamed")
     changes = body.model_dump(exclude_unset=True)
+    if "email" in changes:
+        duplicate = await db.execute(select(User.id).where(func.lower(User.email) == changes["email"].lower(), User.id != user.id))
+        if duplicate.scalar_one_or_none():
+            raise HTTPException(409, "Email already exists")
+    if "username" in changes:
+        duplicate = await db.execute(select(User.id).where(User.username == changes["username"], User.id != user.id))
+        if duplicate.scalar_one_or_none():
+            raise HTTPException(409, "Username already exists")
     if "password" in changes:
         user.hashed_password = get_password_hash(changes.pop("password")); user.auth_version += 1
     if changes.get("is_active") is False:
