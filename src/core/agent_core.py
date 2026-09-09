@@ -6,7 +6,7 @@ an :class:`~src.core.signals.AgentSignals` instance and emits signals at
 every meaningful event.  The UI layer listens to those signals.
 
 Key features ported from the CLI:
-  * NVIDIA NIM / OpenRouter provider pool with failover
+  * Canonical OmniRoute session-pool provider with guarded failover
   * Token-bucket RPM enforcement
   * 10 % context compaction
   * Auto-Correction Interceptor for XML hallucinations
@@ -20,7 +20,7 @@ import re
 import time
 from typing import Dict, List, Optional, Any, Set
 
-from .providers import ProviderPool, build_provider_pool
+from .providers import CANONICAL_CONSUMER_MODEL, ProviderPool, build_provider_pool
 from .rate_limiter import TokenMeter
 from .signals import AgentSignals
 from .tools import TOOLS_SCHEMA, FileTools, execute_tool
@@ -301,25 +301,13 @@ class NIMAgentCore:
                         f"Awaiting {provider.name} (TTFT)..."
                     )
 
-                    # Use role-specific model if available
-                    model_key = getattr(self, "_role_model_key", "glm")
-                    model_entry = self.profile["models"].get(model_key)
-                    if model_entry:
-                        payload["model"] = model_entry["id"]
-                    else:
-                        payload["model"] = provider.model_id
-
-                    # Enable thinking for GLM models
-                    current_model = payload["model"]
-                    if "glm" in current_model:
-                        payload["extra_body"] = {
-                            "chat_template_kwargs": {
-                                "enable_thinking": True,
-                                "thinking_effort": "medium",
-                            }
-                        }
-                    else:
-                        payload.pop("extra_body", None)
+                    # Role profiles retain their historical model labels for
+                    # UI compatibility, but the wire contract is invariant:
+                    # every desktop completion enters OmniRoute as the single
+                    # provider-aware session-pool route.  Upstream-specific
+                    # model/template fields must not leak through this layer.
+                    payload["model"] = CANONICAL_CONSUMER_MODEL
+                    payload.pop("extra_body", None)
 
                     resp = provider.client.chat.completions.create(**payload)
                     in_think = False
