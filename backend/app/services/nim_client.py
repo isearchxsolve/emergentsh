@@ -26,38 +26,56 @@ except ImportError:
         NIMConfig = None  # type: ignore
 
 
+CANONICAL_OMNIROUTE_BASE_URL = "http://127.0.0.1:8190/v1"
+CANONICAL_OMNIROUTE_CHAT_MODEL = "session-pool/auto"
+
 DEFAULT_BASE_URL = os.getenv("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1")
 DEFAULT_MODEL = os.getenv("NIM_DEFAULT_MODEL", "meta/llama-3.1-8b-instruct")
-# 20130 is NeonBuild's canonical local OmniRoute listener. 20128 was the
-# legacy wrapper port and can remain occupied by an unrelated protected
-# process; defaulting to it recreates a split-brain gateway after restart.
-DEFAULT_OMNIROUTE_BASE_URL = os.getenv("OMNIROUTE_BASE_URL", "http://127.0.0.1:8190/v1")
+# The application boundary is the task-owned session-pool shim.  The old
+# 20128/20130 listeners are supply-side or diagnostic surfaces; selecting one
+# here would bypass the consumer contract and recreate split-brain routing.
+DEFAULT_OMNIROUTE_BASE_URL = CANONICAL_OMNIROUTE_BASE_URL
 # These are OmniRoute *routes*, rather than a pinned NVIDIA model. Each route
 # is a provider-aware policy managed by OmniRoute, so it can use its ordered
 # upstream providers and credentials without NeonBuild knowing any provider
 # secrets. Keep the list deliberately short and proven: it is both the default
 # gateway health probe and the last-resort route fallback.
 DEFAULT_OMNIROUTE_MODELS = (
-    "chat/session-pool/auto",
+    CANONICAL_OMNIROUTE_CHAT_MODEL,
 )
 
-# Stage routing lets the gateway apply the right cross-provider policy to the
-# work at hand. Operators may override any value with, for example,
-# OMNIROUTE_FRONTEND_ROUTE=fusion-coder, without a code deployment. A route
-# can also be a concrete model where an operator intentionally wants that.
+# Stage names remain for compatibility with the pipeline's policy interface,
+# but every application stage enters the same provider-aware consumer route.
+# A stage-specific model override would bypass that boundary, so it is rejected
+# at request/startup configuration time below.
 DEFAULT_OMNIROUTE_ROUTES_BY_STAGE = {
-    "planner": "chat/session-pool/auto",
-    "designer": "chat/session-pool/auto",
-    # The live Gemini lane is a stronger code-artifact producer than the
-    # short-response general coding combo. AsyncOmniRouteClient still falls
-    # through to the configured auto routes if this provider is unavailable.
-    "frontend": "chat/session-pool/auto",
-    "backend": "chat/session-pool/auto",
-    "integration": "chat/session-pool/auto",
-    "preview": "chat/session-pool/auto",
-    "qa": "chat/session-pool/auto",
-    "devops": "chat/session-pool/auto",
+    "planner": CANONICAL_OMNIROUTE_CHAT_MODEL,
+    "designer": CANONICAL_OMNIROUTE_CHAT_MODEL,
+    "frontend": CANONICAL_OMNIROUTE_CHAT_MODEL,
+    "backend": CANONICAL_OMNIROUTE_CHAT_MODEL,
+    "integration": CANONICAL_OMNIROUTE_CHAT_MODEL,
+    "preview": CANONICAL_OMNIROUTE_CHAT_MODEL,
+    "qa": CANONICAL_OMNIROUTE_CHAT_MODEL,
+    "devops": CANONICAL_OMNIROUTE_CHAT_MODEL,
 }
+
+
+def configured_omniroute_base_url() -> str:
+    """Return the one allowed application inference base URL.
+
+    A gateway URL is a security and routing boundary, not a cosmetic setting:
+    allowing ``localhost`` or an old port sends traffic around the session-pool
+    shim.  The value is checked at runtime (rather than only at import time) so
+    startup and tests observe the same configuration.
+    """
+
+    configured = os.getenv("OMNIROUTE_BASE_URL", CANONICAL_OMNIROUTE_BASE_URL).strip().rstrip("/")
+    if configured != CANONICAL_OMNIROUTE_BASE_URL:
+        raise ValueError(
+            "EmergentSH must use the canonical consumer endpoint "
+            f"{CANONICAL_OMNIROUTE_BASE_URL}; received {configured!r}"
+        )
+    return CANONICAL_OMNIROUTE_BASE_URL
 
 
 def _omniroute_streaming_enabled() -> bool:
@@ -75,11 +93,17 @@ def _omniroute_streaming_enabled() -> bool:
 
 
 def _configured_omniroute_models() -> List[str]:
-    """Return ordered gateway route fallbacks without accepting empty IDs."""
+    """Return the canonical gateway route without accepting empty/alternate IDs."""
     raw = os.getenv("OMNIROUTE_FALLBACK_MODELS", "")
     if not raw.strip():
         return list(DEFAULT_OMNIROUTE_MODELS)
-    return [model.strip() for model in raw.split(",") if model.strip()]
+    models = [model.strip() for model in raw.split(",") if model.strip()]
+    if models != [CANONICAL_OMNIROUTE_CHAT_MODEL]:
+        raise ValueError(
+            "OMNIROUTE_FALLBACK_MODELS must contain only "
+            f"{CANONICAL_OMNIROUTE_CHAT_MODEL!r}"
+        )
+    return models
 
 
 def configured_omniroute_route(stage: str) -> str:
@@ -87,14 +111,18 @@ def configured_omniroute_route(stage: str) -> str:
 
     The stage value is intentionally a string so this module remains usable by
     the transport layer without importing the pipeline's enum. Unknown stages
-    use the general coding route rather than accidentally pinning a provider.
+    still use the one canonical consumer route rather than pinning a provider.
     """
     normalized_stage = stage.strip().lower()
-    default = DEFAULT_OMNIROUTE_ROUTES_BY_STAGE.get(
-        normalized_stage, DEFAULT_OMNIROUTE_MODELS[0]
-    )
+    default = DEFAULT_OMNIROUTE_ROUTES_BY_STAGE.get(normalized_stage, CANONICAL_OMNIROUTE_CHAT_MODEL)
     env_name = f"OMNIROUTE_{normalized_stage.upper()}_ROUTE"
-    return os.getenv(env_name, default).strip() or default
+    selected = os.getenv(env_name, default).strip() or default
+    if selected != CANONICAL_OMNIROUTE_CHAT_MODEL:
+        raise ValueError(
+            f"{env_name} must remain {CANONICAL_OMNIROUTE_CHAT_MODEL!r}; "
+            f"received {selected!r}"
+        )
+    return selected
 
 
 class AsyncOmniRouteClient:
@@ -114,7 +142,13 @@ class AsyncOmniRouteClient:
         cooldown_seconds: float = 30.0,
     ) -> None:
         self.api_key = (api_key or os.getenv("OMNIROUTE_API_KEY") or "").strip()
-        self.base_url = (base_url or DEFAULT_OMNIROUTE_BASE_URL).rstrip("/")
+        selected_base_url = (base_url or configured_omniroute_base_url()).rstrip("/")
+        if selected_base_url != CANONICAL_OMNIROUTE_BASE_URL:
+            raise ValueError(
+                "AsyncOmniRouteClient must use the canonical consumer endpoint "
+                f"{CANONICAL_OMNIROUTE_BASE_URL}; received {selected_base_url!r}"
+            )
+        self.base_url = CANONICAL_OMNIROUTE_BASE_URL
         self.models = models or _configured_omniroute_models()
         if not self.models:
             raise ValueError("At least one OmniRoute fallback model is required.")
@@ -494,8 +528,14 @@ def configured_inference_provider() -> str:
     longer means "choose a direct provider when a gateway variable is absent".
     """
     requested = os.getenv("INFERENCE_PROVIDER", "omniroute").strip().lower()
+    runtime = os.getenv("APP_ENV", "development").strip().lower()
+    if runtime in {"production", "prod"} and requested != "omniroute":
+        raise ValueError(
+            "EmergentSH production inference must use INFERENCE_PROVIDER=omniroute"
+        )
     if requested not in {"auto", "omniroute"}:
         raise ValueError("EmergentSH production inference must use INFERENCE_PROVIDER=omniroute")
+    configured_omniroute_base_url()
     return "omniroute"
 
 

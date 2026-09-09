@@ -9,10 +9,31 @@ import pytest
 from backend.app.services.nim_client import (
     AsyncNIMClient,
     AsyncOmniRouteClient,
+    CANONICAL_OMNIROUTE_BASE_URL,
+    CANONICAL_OMNIROUTE_CHAT_MODEL,
+    configured_omniroute_base_url,
     configured_inference_provider,
     configured_omniroute_route,
     get_inference_client,
 )
+
+
+@pytest.fixture(autouse=True)
+def canonical_consumer_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the hermetic suite independent of a developer shell's stale URL."""
+    monkeypatch.setenv("OMNIROUTE_BASE_URL", CANONICAL_OMNIROUTE_BASE_URL)
+    monkeypatch.delenv("OMNIROUTE_FALLBACK_MODELS", raising=False)
+    for name in (
+        "OMNIROUTE_PLANNER_ROUTE",
+        "OMNIROUTE_BACKEND_ROUTE",
+        "OMNIROUTE_DESIGNER_ROUTE",
+        "OMNIROUTE_FRONTEND_ROUTE",
+        "OMNIROUTE_INTEGRATION_ROUTE",
+        "OMNIROUTE_PREVIEW_ROUTE",
+        "OMNIROUTE_QA_ROUTE",
+        "OMNIROUTE_DEVOPS_ROUTE",
+    ):
+        monkeypatch.delenv(name, raising=False)
 
 
 def test_auto_provider_prefers_omniroute_without_nvidia_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -45,10 +66,36 @@ def test_direct_nim_configuration_is_rejected_for_application_execution(
 def test_omniroute_stage_routes_use_consumer_pool_and_overrides(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert configured_omniroute_route("planner") == "chat/session-pool/auto"
-    assert configured_omniroute_route("backend") == "chat/session-pool/auto"
+    assert configured_omniroute_route("planner") == CANONICAL_OMNIROUTE_CHAT_MODEL
+    assert configured_omniroute_route("backend") == CANONICAL_OMNIROUTE_CHAT_MODEL
     monkeypatch.setenv("OMNIROUTE_BACKEND_ROUTE", "fusion-coder")
-    assert configured_omniroute_route("backend") == "fusion-coder"
+    with pytest.raises(ValueError, match="must remain"):
+        configured_omniroute_route("backend")
+
+
+def test_noncanonical_consumer_base_is_rejected_before_client_creation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OMNIROUTE_BASE_URL", "http://localhost:20128/v1")
+    with pytest.raises(ValueError, match="canonical consumer endpoint"):
+        configured_omniroute_base_url()
+    with pytest.raises(ValueError, match="canonical consumer endpoint"):
+        AsyncOmniRouteClient()
+
+
+def test_noncanonical_fallback_route_configuration_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OMNIROUTE_FALLBACK_MODELS", "auto/best-coding")
+    with pytest.raises(ValueError, match="OMNIROUTE_FALLBACK_MODELS"):
+        AsyncOmniRouteClient()
+
+
+def test_production_requires_explicit_omniroute_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("INFERENCE_PROVIDER", "auto")
+    with pytest.raises(ValueError, match="INFERENCE_PROVIDER=omniroute"):
+        configured_inference_provider()
 
 
 async def make_client(transport: httpx.MockTransport) -> AsyncNIMClient:

@@ -32,6 +32,24 @@ from backend.agent_pipeline import (
     parse_design_tokens,
     unwrap_generated_code,
 )
+
+
+@pytest.fixture(autouse=True)
+def canonical_consumer_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep pipeline tests on the documented consumer boundary."""
+    monkeypatch.setenv("OMNIROUTE_BASE_URL", "http://127.0.0.1:8190/v1")
+    monkeypatch.delenv("OMNIROUTE_FALLBACK_MODELS", raising=False)
+    for name in (
+        "OMNIROUTE_PLANNER_ROUTE",
+        "OMNIROUTE_BACKEND_ROUTE",
+        "OMNIROUTE_DESIGNER_ROUTE",
+        "OMNIROUTE_FRONTEND_ROUTE",
+        "OMNIROUTE_INTEGRATION_ROUTE",
+        "OMNIROUTE_PREVIEW_ROUTE",
+        "OMNIROUTE_QA_ROUTE",
+        "OMNIROUTE_DEVOPS_ROUTE",
+    ):
+        monkeypatch.delenv(name, raising=False)
 from backend.app.api.pipeline import _deliverable_file
 
 
@@ -167,7 +185,7 @@ async def test_agents_select_omniroute_policy_by_stage(monkeypatch) -> None:
     await FrontendAgent(client)._call_nim("build the frontend")
     await BackendAgent(client)._call_nim("build this")
 
-    assert client.models == ["auto/best-reasoning", "gemini/gemini-3.6-flash", "auto/best-coding"]
+    assert client.models == ["session-pool/auto"] * 3
 
 
 @pytest.mark.asyncio
@@ -184,11 +202,17 @@ async def test_planner_retries_with_the_exact_missing_contract(monkeypatch) -> N
                 yield (
                     "# Overview\n\n## Tech Stack\nFastAPI and React\n\n## Features\nInvoices\n"
                     "## API Endpoints\nGET /api/v1/invoices\nPOST /api/v1/invoices\nPATCH /api/v1/invoices/{id}\n"
-                    "## Database Schema\ninvoices table\n\n## Acceptance Tests\nCreate invoice journey\n"
-                    "## Local Startup\nRun backend and frontend\n\n## Milestones\nBuild and verify"
-                )
+                        "## Database Schema\ninvoices table\n\n## Acceptance Tests\nCreate invoice journey\n"
+                        "## Local Startup\nRun backend and frontend\n\n## Milestones\nBuild and verify\n"
+                        "## Business Vision\nInvoice workflow and business outcome for finance teams.\n"
+                        "## Primary User Journeys\nRole-based actors create and approve invoices with authorization.\n"
+                        "## Success Metrics\nReduce invoice processing time.\n"
+                        "## Out of Scope\nPayroll is a non-goal."
+                    )
 
-    monkeypatch.setenv("INFERENCE_PROVIDER", "nim")
+    # Even a hermetic repair client should exercise the application transport
+    # policy; direct NIM is retired rather than a valid test execution mode.
+    monkeypatch.setenv("INFERENCE_PROVIDER", "omniroute")
     client = PlannerRepairClient()
     result = await AgentPipeline(client)._run_agent_with_retry(
         PlannerAgent(client), PipelineContext(user_prompt="Build an invoice app")
