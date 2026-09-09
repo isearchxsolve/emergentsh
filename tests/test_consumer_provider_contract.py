@@ -62,6 +62,14 @@ def test_provider_constructor_rejects_upstream_url_or_model() -> None:
             providers.CANONICAL_CONSUMER_MODEL,
             20.0,
         )
+    with pytest.raises(ValueError, match="canonical consumer model"):
+        providers.Provider(
+            "legacy",
+            providers.CANONICAL_CONSUMER_BASE_URL,
+            "ignored",
+            "z-ai/glm-5.2",
+            20.0,
+        )
 
 
 def test_agent_core_wire_payload_is_pinned_to_consumer_route(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -100,11 +108,34 @@ def test_agent_core_wire_payload_is_pinned_to_consumer_route(monkeypatch: pytest
     assert "extra_body" not in calls[0]
     assert agent.pool.providers[0].client.base_url == providers.CANONICAL_CONSUMER_BASE_URL
     assert agent.pool.providers[0].client.api_key == ""
-    with pytest.raises(ValueError, match="canonical consumer model"):
-        providers.Provider(
-            "legacy",
-            providers.CANONICAL_CONSUMER_BASE_URL,
-            "ignored",
-            "z-ai/glm-5.2",
-            20.0,
-        )
+
+
+def test_model_registry_factory_pins_transport_and_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The legacy catalogue factory cannot reintroduce an upstream client."""
+    monkeypatch.setenv("OMNIROUTE_BASE_URL", providers.CANONICAL_CONSUMER_BASE_URL)
+    monkeypatch.delenv("OMNIROUTE_API_KEY", raising=False)
+    calls: list[dict] = []
+
+    class Completions:
+        def create(self, **payload):
+            calls.append(payload)
+            return "ok"
+
+    class FactoryOpenAI:
+        def __init__(self, *, base_url: str, api_key: str, timeout: float) -> None:
+            self.base_url = base_url
+            self.api_key = api_key
+            self.timeout = timeout
+            self.chat = SimpleNamespace(completions=Completions())
+
+    import openai
+
+    monkeypatch.setattr(openai, "OpenAI", FactoryOpenAI)
+    from src.core.models.registry import ModelClientFactory, ModelRegistry
+
+    factory = ModelClientFactory(ModelRegistry(workspace=object()))
+    client = factory.create_client("nvidia/nemotron-3-ultra", api_key="profile-key")
+    assert client.base_url == providers.CANONICAL_CONSUMER_BASE_URL
+    assert client.chat.completions.create(model="nvidia/nemotron-3-ultra", messages=[]) == "ok"
+    assert calls[0]["model"] == providers.CANONICAL_CONSUMER_MODEL
+    assert factory.create_client("openrouter/qwen/qwen-2.5-coder-32b-instruct:free") is client

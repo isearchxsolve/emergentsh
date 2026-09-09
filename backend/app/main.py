@@ -20,7 +20,10 @@ from backend.app.models import User
 from backend.app.core.database import AsyncSessionLocal
 from sqlalchemy import select
 from backend.app.api import projects, auth, credits, pipeline as pipeline_api
-from backend.app.services.nim_client import configured_inference_provider
+from backend.app.services.nim_client import (
+    configured_inference_provider,
+    configured_omniroute_base_url,
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -63,12 +66,19 @@ app.include_router(pipeline_api.router, prefix="/api")
 
 @app.get("/")
 async def root():
-    return {"name": "NeonBuild API", "version": "1.0.0", "inference": os.getenv("INFERENCE_PROVIDER", "auto"), "docs": "/docs", "pipeline": "/api/pipeline/run"}
+    return {
+        "name": "NeonBuild API",
+        "version": "1.0.0",
+        "inference": configured_inference_provider(),
+        "inference_base_url": configured_omniroute_base_url(),
+        "docs": "/docs",
+        "pipeline": "/api/pipeline/run",
+    }
 
 @app.get("/health")
 async def health():
     return {
         "status": "healthy",
         "inference_provider": configured_inference_provider(),
-        "inference_base_url": os.getenv("OMNIROUTE_BASE_URL", "http://127.0.0.1:8190/v1"),
+        "inference_base_url": configured_omniroute_base_url(),
     }

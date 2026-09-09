@@ -1,7 +1,10 @@
-"""
-Model Registry & Marketplace — manages LLM models from various providers.
+"""Model catalogue and canonical consumer client factory.
 
-Supports: NVIDIA NIM, OpenRouter, Anthropic, OpenAI, local (Ollama), custom endpoints.
+The catalogue retains provider metadata for backwards-compatible UI and cost
+views.  Runtime inference is deliberately narrower: every client created by
+this module is a model-pinning proxy over the task-owned OmniRoute session-pool
+endpoint.  Catalogue rows remain metadata only; none is allowed to select an
+upstream URL or key at runtime.
 """
 
 from __future__ import annotations
@@ -16,6 +19,11 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from ..workspace import WorkspaceManager, get_workspace
+from ..providers import (
+    CANONICAL_CONSUMER_BASE_URL,
+    CANONICAL_CONSUMER_MODEL,
+    configured_consumer_base_url,
+)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -159,6 +167,23 @@ class ModelRegistry:
     
     def _initialize_builtin_models(self) -> None:
         """Register built-in models from major providers."""
+
+        # Runtime execution is pinned to this provider-aware route.  The other
+        # entries below remain catalogue metadata for old UI/cost records only.
+        self._register(ModelInfo(
+            id=CANONICAL_CONSUMER_MODEL,
+            name="OmniRoute Session Pool",
+            provider=ModelProvider.CUSTOM,
+            provider_model_id=CANONICAL_CONSUMER_MODEL,
+            capabilities={ModelCapability.CHAT, ModelCapability.REASONING, ModelCapability.FUNCTION_CALLING, ModelCapability.STREAMING},
+            context_window=128000,
+            max_output_tokens=32768,
+            supports_reasoning=True,
+            supports_function_calling=True,
+            supports_streaming=True,
+            base_url=CANONICAL_CONSUMER_BASE_URL,
+            description="Provider-aware session pool via the local OmniRoute consumer gateway",
+        ))
         
         # NVIDIA NIM Models
         self._register(ModelInfo(
@@ -492,12 +517,37 @@ class ModelRegistry:
 # Provider Client Factory
 # ════════════════════════════════════════════════════════════════════════════
 
+class _CanonicalCompletionsProxy:
+    """Rewrite every completion request to the canonical consumer model."""
+
+    def __init__(self, delegate: Any) -> None:
+        self._delegate = delegate
+
+    def create(self, **kwargs: Any) -> Any:
+        payload = dict(kwargs)
+        payload["model"] = CANONICAL_CONSUMER_MODEL
+        return self._delegate.create(**payload)
+
+
+class _CanonicalChatProxy:
+    def __init__(self, delegate: Any) -> None:
+        self.completions = _CanonicalCompletionsProxy(delegate.completions)
+
+
+class _CanonicalClientProxy:
+    """OpenAI-compatible facade that prevents model/base URL drift."""
+
+    def __init__(self, delegate: Any) -> None:
+        self._delegate = delegate
+        self.base_url = CANONICAL_CONSUMER_BASE_URL
+        self.chat = _CanonicalChatProxy(delegate.chat)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._delegate, name)
+
+
 class ModelClientFactory:
-    """
-    Factory for creating model clients from different providers.
-    
-    Creates OpenAI-compatible clients for each provider.
-    """
+    """Create only canonical OmniRoute clients for catalogue model IDs."""
     
     def __init__(self, registry: ModelRegistry):
         self._registry = registry
@@ -514,79 +564,30 @@ class ModelClientFactory:
         
         Returns a client compatible with the OpenAI SDK interface.
         """
-        model = self._registry.get_model(model_id)
-        if not model:
+        if not self._registry.get_model(model_id):
             raise ValueError(f"Model not found: {model_id}")
         
-        # Check cache
-        cache_key = f"{model_id}:{api_key or 'default'}"
+        # All catalogue IDs intentionally share one transport and one wire
+        # model.  Do not include the caller-supplied key in cache state: profile
+        # keys can be upstream credentials and are never accepted here.
+        cache_key = "canonical-consumer"
         if cache_key in self._clients:
             return self._clients[cache_key]
-        
-        # Create client based on provider
-        if model.provider == ModelProvider.NVIDIA_NIM:
-            client = self._create_nvidia_client(model, api_key)
-        elif model.provider == ModelProvider.OPENROUTER:
-            client = self._create_openrouter_client(model, api_key)
-        elif model.provider == ModelProvider.ANTHROPIC:
-            client = self._create_anthropic_client(model, api_key)
-        elif model.provider == ModelProvider.OPENAI:
-            client = self._create_openai_client(model, api_key)
-        elif model.provider == ModelProvider.OLLAMA:
-            client = self._create_ollama_client(model)
-        elif model.provider == ModelProvider.CUSTOM:
-            client = self._create_custom_client(model, api_key)
-        else:
-            raise ValueError(f"Unsupported provider: {model.provider}")
-        
+
+        client = self._create_consumer_client()
         self._clients[cache_key] = client
         return client
-    
-    def _create_nvidia_client(self, model: ModelInfo, api_key: Optional[str]) -> Any:
+
+    def _create_consumer_client(self) -> _CanonicalClientProxy:
+        """Build the only runtime client exposed by the registry."""
         from openai import OpenAI
-        return OpenAI(
-            api_key=api_key or os.environ.get("NVIDIA_API_KEY"),
-            base_url=model.base_url or "https://integrate.api.nvidia.com/v1",
+        base_url = configured_consumer_base_url()
+        delegate = OpenAI(
+            api_key=os.environ.get("OMNIROUTE_API_KEY", "").strip(),
+            base_url=base_url,
+            timeout=300,
         )
-    
-    def _create_openrouter_client(self, model: ModelInfo, api_key: Optional[str]) -> Any:
-        from openai import OpenAI
-        return OpenAI(
-            api_key=api_key or os.environ.get("OPENROUTER_API_KEY"),
-            base_url=model.base_url or "https://openrouter.ai/api/v1",
-            default_headers={
-                "HTTP-Referer": "https://neonbuild.dev",
-                "X-Title": "NeonBuild",
-            },
-        )
-    
-    def _create_anthropic_client(self, model: ModelInfo, api_key: Optional[str]) -> Any:
-        import anthropic
-        return anthropic.Anthropic(
-            api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"),
-            base_url=model.base_url or "https://api.anthropic.com",
-        )
-    
-    def _create_openai_client(self, model: ModelInfo, api_key: Optional[str]) -> Any:
-        from openai import OpenAI
-        return OpenAI(
-            api_key=api_key or os.environ.get("OPENAI_API_KEY"),
-            base_url=model.base_url or "https://api.openai.com/v1",
-        )
-    
-    def _create_ollama_client(self, model: ModelInfo) -> Any:
-        from openai import OpenAI
-        return OpenAI(
-            api_key="ollama",  # Ollama doesn't require auth
-            base_url=model.base_url or "http://localhost:11434/v1",
-        )
-    
-    def _create_custom_client(self, model: ModelInfo, api_key: Optional[str]) -> Any:
-        from openai import OpenAI
-        return OpenAI(
-            api_key=api_key or "custom",
-            base_url=model.base_url or "http://localhost:8000/v1",
-        )
+        return _CanonicalClientProxy(delegate)
 
 
 # ════════════════════════════════════════════════════════════════════════════
